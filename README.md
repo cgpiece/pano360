@@ -4,7 +4,7 @@ A zero-dependency, 100% client-side **360° equirectangular panorama viewer** an
 
 纯静态零依赖的 **360° 全景查看与多场景单文件打包工具**，内置多瓦片 WebGL 渲染引擎，所有图像处理与打包均在本地浏览器完成，无需后端服务器。
 
-🔗 **Live Demo / 在线体验**: `https://your-username.github.io/pano360/`
+🔗 **Live Demo / 在线体验**: `[https://your-username.github.io/pano360/](https://cgpiece.github.io/pano360/)`
 
 ---
 
