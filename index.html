@@ -1,0 +1,1650 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>全景视界 360° — 超清瓦片全景查看与多场景单文件打包工具</title>
+  <style>
+    :root {
+      --bg-dark: #070b14; --accent: #38bdf8; --accent-rgb: 56, 189, 248; --accent-deep: #4f46e5;
+      --panel-rgb: 13, 20, 36; --panel-alpha: 0.76; --panel-blur: 18px;
+      --panel-bg: rgba(var(--panel-rgb), var(--panel-alpha)); --panel-hover: rgba(var(--panel-rgb), 0.90);
+      --modal-bg: rgba(var(--panel-rgb), 0.94); --border-light: rgba(255, 255, 255, 0.14);
+      --border-accent: rgba(var(--accent-rgb), 0.5); --text-main: #f8fafc; --text-sub: #cbd5e1;
+      --text-muted: #94a3b8; --emerald: #34d399; --danger: #f43f5e;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; user-select: none; -webkit-user-select: none; }
+    html, body { width: 100%; height: 100%; overflow: hidden; background-color: var(--bg-dark); color: var(--text-main); font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif; }
+    #gl-canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; cursor: grab; touch-action: none; }
+    #gl-canvas:active { cursor: grabbing; }
+    .glass-panel { background: var(--panel-bg); backdrop-filter: blur(var(--panel-blur)); -webkit-backdrop-filter: blur(var(--panel-blur)); border: 1px solid var(--border-light); box-shadow: 0 12px 34px rgba(0, 0, 0, 0.52); }
+    .glass-modal { background: var(--modal-bg); backdrop-filter: blur(calc(var(--panel-blur) + 8px)); -webkit-backdrop-filter: blur(calc(var(--panel-blur) + 8px)); border: 1px solid rgba(255, 255, 255, 0.16); box-shadow: 0 24px 64px rgba(0, 0, 0, 0.78); }
+    .ui-auto-hide { transition: opacity 0.35s ease, transform 0.35s ease; }
+    .ui-auto-hide.idle-hidden, .ui-auto-hide.hidden-ui { opacity: 0 !important; pointer-events: none !important; }
+    #top-bar.idle-hidden, #top-bar.hidden-ui { transform: translateY(-20px); }
+    #scene-dock-wrapper.idle-hidden, #scene-dock-wrapper.hidden-ui { transform: translateY(20px); }
+    #shortcut-panel.idle-hidden, #shortcut-panel.hidden-ui, #theme-panel.idle-hidden, #theme-panel.hidden-ui, #about-panel.idle-hidden, #about-panel.hidden-ui { transform: translateX(16px); }
+    #drop-overlay { position: fixed; inset: 16px; z-index: 80; display: none; align-items: center; justify-content: center; background: rgba(12, 74, 110, 0.86); backdrop-filter: blur(12px); border: 3px dashed var(--accent); border-radius: 24px; pointer-events: none; text-align: center; padding: 24px; }
+    #drop-overlay.active { display: flex; }
+    .drop-icon-wrap { width: 72px; height: 72px; margin: 0 auto 16px; border-radius: 20px; background: rgba(var(--accent-rgb), 0.22); display: flex; align-items: center; justify-content: center; color: var(--accent); }
+    #top-bar { position: fixed; top: 0; left: 0; right: 0; z-index: 35; padding: 14px 16px; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; pointer-events: none; }
+    .brand-card { pointer-events: auto; border-radius: 16px; padding: 9px 14px; display: flex; align-items: center; gap: 12px; max-width: 100%; }
+    .brand-logo { width: 36px; height: 36px; border-radius: 11px; background: linear-gradient(135deg, var(--accent), var(--accent-deep)); display: flex; align-items: center; justify-content: center; flex-shrink: 0; box-shadow: 0 6px 16px rgba(var(--accent-rgb), 0.32); }
+    .brand-info { min-width: 0; }
+    .brand-title-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+    .brand-title { font-size: 15px; font-weight: 700; color: #fff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 220px; }
+    .badge { font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 999px; background: rgba(var(--accent-rgb), 0.16); color: var(--accent); border: 1px solid rgba(var(--accent-rgb), 0.35); flex-shrink: 0; }
+    .badge.tile-badge { background: rgba(52, 211, 153, 0.16); color: #6ee7b7; border-color: rgba(52, 211, 153, 0.35); }
+    .image-meta { font-size: 12px; color: var(--text-sub); margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .top-actions { pointer-events: auto; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-left: auto; }
+    .tool-group { border-radius: 15px; padding: 4px; display: flex; align-items: center; gap: 2px; flex-wrap: wrap; }
+    .icon-btn { background: transparent; border: 1px solid transparent; color: var(--text-sub); border-radius: 11px; padding: 6px 9px; font-size: 12px; font-weight: 500; cursor: pointer; display: inline-flex; align-items: center; gap: 5px; transition: all 0.18s ease; white-space: nowrap; font-family: inherit; }
+    .icon-btn:hover { background: rgba(255, 255, 255, 0.1); color: #fff; }
+    .icon-btn.active { background: rgba(var(--accent-rgb), 0.22); border-color: rgba(var(--accent-rgb), 0.42); color: var(--accent); }
+    .icon-btn.gyro-active { background: rgba(52, 211, 153, 0.2); border-color: rgba(52, 211, 153, 0.38); color: #6ee7b7; }
+    .btn { border: none; outline: none; cursor: pointer; font-family: inherit; font-size: 13px; font-weight: 600; border-radius: 14px; padding: 9px 14px; display: inline-flex; align-items: center; gap: 7px; color: #fff; transition: transform 0.15s ease, background 0.2s ease, box-shadow 0.2s ease; }
+    .btn:active { transform: scale(0.96); }
+    .btn-secondary:hover { background: var(--panel-hover); }
+    .btn-primary { background: linear-gradient(135deg, var(--accent), var(--accent-deep)); box-shadow: 0 8px 20px rgba(var(--accent-rgb), 0.3); }
+    .btn-primary:hover { filter: brightness(1.08); }
+    #compass-pill { position: fixed; top: 76px; right: 16px; z-index: 25; border-radius: 999px; padding: 6px 13px; font-size: 12px; color: var(--text-sub); display: flex; align-items: center; gap: 8px; pointer-events: none; font-variant-numeric: tabular-nums; }
+    .status-dot { width: 7px; height: 7px; border-radius: 50%; background: #34d399; box-shadow: 0 0 8px #34d399; flex-shrink: 0; }
+    #shortcut-panel, #theme-panel, #about-panel { position: fixed; top: 114px; right: 16px; z-index: 38; width: 292px; max-height: calc(100vh - 140px); overflow-y: auto; border-radius: 18px; padding: 13px 15px; display: none; scrollbar-width: thin; }
+    #shortcut-panel.open, #theme-panel.open, #about-panel.open { display: block; }
+    .popover-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; padding-bottom: 7px; border-bottom: 1px solid rgba(255, 255, 255, 0.1); font-size: 12px; font-weight: 700; color: #e2e8f0; }
+    .shortcut-list { display: flex; flex-direction: column; gap: 7px; }
+    .shortcut-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 11px; color: var(--text-sub); }
+    .shortcut-keys { display: inline-flex; align-items: center; gap: 3px; flex-shrink: 0; }
+    kbd { display: inline-block; padding: 2px 6px; font-size: 10px; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-weight: 600; color: var(--accent); background: rgba(var(--accent-rgb), 0.14); border: 1px solid rgba(var(--accent-rgb), 0.34); border-radius: 6px; }
+    .about-brand { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+    .about-desc { font-size: 11.5px; line-height: 1.55; color: var(--text-sub); margin-bottom: 10px; padding: 8px 10px; border-radius: 10px; background: rgba(255, 255, 255, 0.04); border: 1px solid rgba(255, 255, 255, 0.08); }
+    .about-list { display: flex; flex-direction: column; gap: 8px; }
+    .about-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; font-size: 12px; color: var(--text-sub); }
+    .about-val { color: #fff; font-weight: 600; text-align: right; word-break: break-all; }
+    .about-link { color: var(--accent); text-decoration: none; font-weight: 600; }
+    .about-link:hover { text-decoration: underline; }
+    .about-donate-box { margin-top: 12px; padding-top: 10px; border-top: 1px solid rgba(255, 255, 255, 0.1); }
+    .about-donate-title { display: flex; align-items: center; gap: 6px; font-size: 11.5px; font-weight: 700; color: #e2e8f0; margin-bottom: 8px; }
+    .about-donate-links { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
+    .donate-pill { font-size: 11px; font-weight: 600; padding: 4px 10px; border-radius: 999px; background: rgba(var(--accent-rgb), 0.16); border: 1px solid rgba(var(--accent-rgb), 0.35); color: var(--accent); text-decoration: none; transition: all 0.16s ease; }
+    .donate-pill:hover { background: rgba(var(--accent-rgb), 0.28); color: #fff; }
+    .about-qr-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; }
+    .qr-card { background: rgba(255, 255, 255, 0.05); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 10px; padding: 7px; text-align: center; display: flex; flex-direction: column; align-items: center; gap: 5px; }
+    .qr-card canvas { display: block; width: 96px; height: 96px; border-radius: 6px; background: #fff; }
+    .qr-label { font-size: 10.5px; color: var(--text-sub); font-weight: 600; }
+    .theme-section { margin-bottom: 12px; }
+    .theme-section:last-child { margin-bottom: 0; }
+    .theme-row-label { display: flex; justify-content: space-between; align-items: center; font-size: 11px; font-weight: 600; color: var(--text-sub); margin-bottom: 6px; }
+    .theme-val { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--accent); font-weight: 600; }
+    .swatch-grid { display: grid; grid-template-columns: repeat(6, 1fr); gap: 6px; margin-bottom: 8px; }
+    .swatch-btn { height: 24px; border-radius: 8px; border: 2px solid rgba(255, 255, 255, 0.2); cursor: pointer; transition: transform 0.15s ease, border-color 0.15s ease; }
+    .swatch-btn:hover { transform: scale(1.08); }
+    .swatch-btn.active { border-color: #fff; box-shadow: 0 0 0 2px rgba(var(--accent-rgb), 0.55); }
+    .color-pickers-row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+    .color-picker-box { display: flex; align-items: center; justify-content: space-between; gap: 6px; padding: 5px 8px; border-radius: 10px; background: rgba(255, 255, 255, 0.06); border: 1px solid rgba(255, 255, 255, 0.12); font-size: 11px; color: var(--text-sub); cursor: pointer; }
+    .color-picker-box input[type="color"] { width: 22px; height: 22px; border: none; background: transparent; cursor: pointer; padding: 0; }
+    .theme-reset-btn { width: 100%; padding: 7px 10px; border-radius: 10px; border: 1px solid rgba(255, 255, 255, 0.14); background: rgba(255, 255, 255, 0.07); color: var(--text-sub); font-size: 12px; font-weight: 600; cursor: pointer; transition: all 0.18s ease; font-family: inherit; }
+    .theme-reset-btn:hover { background: rgba(255, 255, 255, 0.15); color: #fff; }
+    #btn-restore-ui { position: fixed; bottom: 20px; right: 20px; z-index: 45; width: 44px; height: 44px; border-radius: 50%; border: 1px solid var(--border-light); color: var(--accent); display: none; align-items: center; justify-content: center; cursor: pointer; }
+    #btn-restore-ui.visible { display: flex; }
+    #zoom-hud { position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%) translateY(10px); z-index: 42; border-radius: 999px; padding: 8px 16px; display: flex; align-items: center; gap: 11px; background: rgba(var(--panel-rgb), calc(var(--panel-alpha) * 0.85)); backdrop-filter: blur(var(--panel-blur)); -webkit-backdrop-filter: blur(var(--panel-blur)); border: 1px solid rgba(255, 255, 255, 0.16); box-shadow: 0 10px 28px rgba(0, 0, 0, 0.45); opacity: 0; pointer-events: none; transition: opacity 0.25s ease, transform 0.25s ease; }
+    #zoom-hud.visible { opacity: 1; pointer-events: auto; transform: translateX(-50%) translateY(0); }
+    .zoom-label { font-size: 12px; font-weight: 600; color: #e2e8f0; font-variant-numeric: tabular-nums; min-width: 78px; white-space: nowrap; }
+    .zoom-track { position: relative; width: 170px; height: 7px; border-radius: 999px; background: rgba(255, 255, 255, 0.18); cursor: pointer; touch-action: none; }
+    .zoom-fill { position: absolute; left: 0; top: 0; bottom: 0; width: 44%; border-radius: 999px; background: linear-gradient(90deg, rgba(var(--accent-rgb), 0.72), var(--accent-deep)); pointer-events: none; }
+    .zoom-thumb { position: absolute; top: 50%; left: 44%; width: 13px; height: 13px; border-radius: 50%; background: #fff; border: 2px solid var(--accent); box-shadow: 0 0 10px rgba(var(--accent-rgb), 0.85); transform: translate(-50%, -50%); pointer-events: none; }
+    #vr-overlay { position: fixed; inset: 0; z-index: 46; display: none; pointer-events: none; }
+    #vr-overlay.active { display: block; }
+    .vr-divider { position: absolute; top: 0; bottom: 0; left: 50%; width: 2px; transform: translateX(-50%); background: linear-gradient(180deg, rgba(0, 0, 0, 0.85), rgba(var(--accent-rgb), 0.55), rgba(0, 0, 0, 0.85)); box-shadow: 0 0 12px rgba(0, 0, 0, 0.9); }
+    .vr-eye-frame { position: absolute; top: 12px; bottom: 12px; width: calc(50% - 20px); border-radius: 26px; border: 1.5px solid rgba(255, 255, 255, 0.14); box-shadow: inset 0 0 42px rgba(0, 0, 0, 0.55); }
+    .vr-eye-left { left: 10px; } .vr-eye-right { right: 10px; }
+    .vr-reticle { position: absolute; top: 50%; width: 6px; height: 6px; border-radius: 50%; background: rgba(255, 255, 255, 0.42); transform: translate(-50%, -50%); }
+    .vr-reticle-left { left: 25%; } .vr-reticle-right { left: 75%; }
+    #btn-exit-vr { position: absolute; top: 16px; left: 50%; transform: translateX(-50%); pointer-events: auto; padding: 8px 16px; border-radius: 999px; border: 1px solid rgba(var(--accent-rgb), 0.45); color: #f8fafc; font-size: 12px; font-weight: 600; cursor: pointer; display: inline-flex; align-items: center; gap: 7px; }
+    #btn-exit-vr:hover { background: var(--panel-hover); }
+    #scene-dock-wrapper { position: fixed; left: 16px; bottom: 16px; z-index: 40; max-width: calc(100vw - 32px); }
+    #dock-pill { display: none; align-items: center; gap: 9px; padding: 9px 15px; border-radius: 999px; cursor: pointer; font-size: 12px; font-weight: 600; color: #e2e8f0; transition: all 0.25s ease; animation: pulseGlow 2.8s infinite ease-in-out; }
+    #dock-pill:hover { background: var(--panel-hover); border-color: var(--border-accent); color: #fff; transform: translateY(-2px); }
+    #scene-dock-wrapper.collapsed #dock-pill { display: inline-flex; }
+    #scene-dock-wrapper.collapsed #dock-panel { display: none; }
+    @keyframes pulseGlow { 0%, 100% { box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5), 0 0 0 0 rgba(var(--accent-rgb), 0.25); } 50% { box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5), 0 0 0 6px rgba(var(--accent-rgb), 0); } }
+    #dock-panel { border-radius: 20px; padding: 10px 12px 12px; width: min(560px, calc(100vw - 32px)); transition: all 0.28s ease; }
+    .dock-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 9px; padding: 0 2px; }
+    .dock-title { font-size: 12px; font-weight: 700; color: var(--text-sub); display: flex; align-items: center; gap: 7px; }
+    .dock-hint { font-size: 11px; color: var(--text-muted); font-weight: 400; }
+    .dock-controls { display: flex; align-items: center; gap: 4px; }
+    .dock-mini-btn { background: rgba(255, 255, 255, 0.06); border: 1px solid rgba(255, 255, 255, 0.1); color: var(--text-sub); border-radius: 8px; padding: 4px 8px; font-size: 11px; cursor: pointer; display: inline-flex; align-items: center; gap: 4px; transition: all 0.18s ease; }
+    .dock-mini-btn:hover { background: rgba(255, 255, 255, 0.14); color: #fff; }
+    .dock-mini-btn.pinned { background: rgba(var(--accent-rgb), 0.2); border-color: rgba(var(--accent-rgb), 0.42); color: var(--accent); }
+    #scene-list { display: flex; align-items: stretch; gap: 10px; overflow-x: auto; padding: 4px 2px 6px; scrollbar-width: thin; scrollbar-color: rgba(255, 255, 255, 0.2) transparent; }
+    #scene-list::-webkit-scrollbar { height: 5px; }
+    #scene-list::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.22); border-radius: 999px; }
+    .scene-card { position: relative; flex: 0 0 124px; border-radius: 13px; background: rgba(var(--panel-rgb), 0.72); border: 2px solid rgba(255, 255, 255, 0.1); overflow: hidden; cursor: pointer; transition: transform 0.18s ease, border-color 0.18s ease, box-shadow 0.18s ease, opacity 0.18s ease; }
+    .scene-card:hover { border-color: rgba(255, 255, 255, 0.32); transform: translateY(-2px); }
+    .scene-card.active { border-color: var(--accent); box-shadow: 0 0 0 2px rgba(var(--accent-rgb), 0.25), 0 8px 20px rgba(0, 0, 0, 0.45); }
+    .scene-card.dragging { opacity: 0.42; transform: scale(0.95); }
+    .scene-card.drag-over { border-color: #34d399; box-shadow: -3px 0 0 #34d399; }
+    .scene-thumb-box { position: relative; width: 100%; height: 66px; background: #090d16; overflow: hidden; }
+    .scene-thumb-img { width: 100%; height: 100%; object-fit: cover; display: block; pointer-events: none; }
+    .scene-index-tag { position: absolute; top: 5px; left: 5px; background: rgba(7, 11, 20, 0.78); backdrop-filter: blur(6px); color: #e2e8f0; font-size: 10px; font-weight: 700; padding: 1px 6px; border-radius: 6px; border: 1px solid rgba(255, 255, 255, 0.14); }
+    .scene-card.active .scene-index-tag { background: var(--accent); color: #07101d; border-color: transparent; }
+    .scene-tile-tag { position: absolute; bottom: 4px; right: 4px; background: rgba(7, 11, 20, 0.78); color: #6ee7b7; font-size: 9px; font-weight: 600; padding: 1px 5px; border-radius: 5px; }
+    .scene-card-actions { position: absolute; top: 4px; right: 4px; display: flex; gap: 3px; opacity: 0; transition: opacity 0.15s ease; }
+    .scene-card:hover .scene-card-actions { opacity: 1; }
+    .scene-action-icon { width: 20px; height: 20px; border-radius: 6px; border: none; background: rgba(7, 11, 20, 0.82); color: #e2e8f0; display: flex; align-items: center; justify-content: center; cursor: pointer; }
+    .scene-action-icon:hover { background: var(--accent); color: #07101d; }
+    .scene-action-icon.del:hover { background: var(--danger); color: #fff; }
+    .scene-footer { padding: 6px 8px; display: flex; align-items: center; justify-content: space-between; gap: 4px; }
+    .scene-name { font-size: 11px; font-weight: 600; color: #f1f5f9; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: 1; }
+    .scene-res { font-size: 10px; color: var(--text-muted); flex-shrink: 0; }
+    .scene-add-card { flex: 0 0 88px; border-radius: 13px; border: 1.5px dashed rgba(255, 255, 255, 0.22); background: rgba(255, 255, 255, 0.03); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 5px; color: var(--text-sub); cursor: pointer; transition: all 0.18s ease; min-height: 95px; }
+    .scene-add-card:hover { border-color: var(--accent); background: rgba(var(--accent-rgb), 0.1); color: #fff; }
+    .modal-backdrop { position: fixed; inset: 0; z-index: 65; background: rgba(0, 0, 0, 0.72); backdrop-filter: blur(6px); display: none; align-items: center; justify-content: center; padding: 16px; }
+    .modal-backdrop.open { display: flex; }
+    .modal-card { width: 100%; max-width: 550px; max-height: 92vh; overflow-y: auto; border-radius: 24px; padding: 24px; color: var(--text-main); scrollbar-width: thin; scrollbar-color: rgba(255, 255, 255, 0.2) transparent; }
+    .modal-card::-webkit-scrollbar { width: 5px; }
+    .modal-card::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.2); border-radius: 999px; }
+    .modal-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 18px; }
+    .modal-title-group { display: flex; align-items: center; gap: 12px; }
+    .modal-icon { width: 40px; height: 40px; border-radius: 12px; background: rgba(var(--accent-rgb), 0.16); border: 1px solid rgba(var(--accent-rgb), 0.3); color: var(--accent); display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+    .modal-header h3 { font-size: 17px; font-weight: 700; }
+    .modal-header p { font-size: 12px; color: var(--text-muted); margin-top: 2px; }
+    .icon-close { background: transparent; border: none; color: var(--text-muted); cursor: pointer; padding: 6px; border-radius: 10px; }
+    .icon-close:hover { background: rgba(255, 255, 255, 0.1); color: #fff; }
+    .form-group { margin-bottom: 14px; }
+    .form-label-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
+    .form-label { display: block; font-size: 12px; font-weight: 600; color: var(--text-sub); margin-bottom: 6px; }
+    .form-label-row .form-label { margin-bottom: 0; }
+    .size-est { font-size: 12px; font-weight: 600; color: var(--accent); }
+    .form-input, .form-select { width: 100%; background: rgba(15, 23, 42, 0.92); border: 1px solid rgba(255, 255, 255, 0.16); border-radius: 12px; padding: 10px 12px; font-size: 13px; color: #fff; outline: none; font-family: inherit; }
+    .form-input:focus, .form-select:focus { border-color: var(--accent); }
+    .edit-action-card { padding: 11px 12px; border-radius: 13px; background: rgba(255, 255, 255, 0.04); border: 1px solid rgba(255, 255, 255, 0.11); margin-top: 10px; }
+    .edit-action-btn { width: 100%; padding: 9px 12px; border-radius: 10px; border: 1px solid rgba(var(--accent-rgb), 0.38); background: rgba(var(--accent-rgb), 0.14); color: var(--accent); font-size: 12.5px; font-weight: 600; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; gap: 7px; font-family: inherit; transition: all 0.16s ease; }
+    .edit-action-btn:hover { background: rgba(var(--accent-rgb), 0.25); color: #fff; }
+    .edit-action-btn.recorded { background: rgba(52, 211, 153, 0.18); border-color: rgba(52, 211, 153, 0.5); color: #6ee7b7; }
+    .edit-action-status { font-size: 11px; color: var(--text-muted); margin-top: 7px; text-align: center; line-height: 1.4; }
+    .edit-action-status.highlight { color: #6ee7b7; font-weight: 600; }
+    .quality-slider-row { display: flex; align-items: center; gap: 10px; margin-top: 10px; }
+    input[type="range"] { -webkit-appearance: none; appearance: none; height: 6px; border-radius: 999px; outline: none; cursor: pointer; background: linear-gradient(90deg, rgba(var(--accent-rgb), 0.78) 0%, var(--accent) var(--range-pct, 50%), rgba(255, 255, 255, 0.22) var(--range-pct, 50%), rgba(255, 255, 255, 0.22) 100%); }
+    input[type="range"]::-moz-range-track { height: 6px; border-radius: 999px; background: transparent; }
+    input[type="range"]::-webkit-slider-thumb { -webkit-appearance: none; appearance: none; width: 15px; height: 15px; border-radius: 50%; background: #fff; border: 2px solid var(--accent); box-shadow: 0 0 10px rgba(var(--accent-rgb), 0.85); }
+    input[type="range"]::-moz-range-thumb { width: 15px; height: 15px; border-radius: 50%; background: #fff; border: 2px solid var(--accent); box-shadow: 0 0 10px rgba(var(--accent-rgb), 0.85); }
+    .logo-config-box { background: rgba(255, 255, 255, 0.04); border: 1px solid rgba(255, 255, 255, 0.12); border-radius: 14px; padding: 12px; margin-bottom: 14px; }
+    .segmented-group { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin-bottom: 10px; }
+    .seg-btn { padding: 6px 8px; border-radius: 9px; border: 1px solid rgba(255, 255, 255, 0.12); background: rgba(255, 255, 255, 0.04); color: var(--text-sub); font-size: 12px; font-weight: 600; cursor: pointer; font-family: inherit; transition: all 0.16s ease; }
+    .seg-btn:hover { background: rgba(255, 255, 255, 0.1); color: #fff; }
+    .seg-btn.active { background: rgba(var(--accent-rgb), 0.22); border-color: rgba(var(--accent-rgb), 0.5); color: var(--accent); }
+    .logo-upload-row { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
+    .logo-upload-btn { padding: 7px 12px; border-radius: 10px; border: 1px dashed rgba(var(--accent-rgb), 0.5); background: rgba(var(--accent-rgb), 0.1); color: var(--accent); font-size: 12px; font-weight: 600; cursor: pointer; font-family: inherit; white-space: nowrap; }
+    .logo-upload-btn:hover { background: rgba(var(--accent-rgb), 0.18); }
+    .logo-file-name { font-size: 11px; color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
+    .logo-preview-stage { position: relative; height: 76px; border-radius: 10px; margin-top: 10px; background: linear-gradient(135deg, #0f172a, #1e293b 60%, #334155); border: 1px solid rgba(255, 255, 255, 0.1); overflow: hidden; }
+    .logo-preview-hint { position: absolute; top: 6px; left: 8px; font-size: 10px; color: rgba(255, 255, 255, 0.42); }
+    #export-logo-preview { position: absolute; right: 10px; bottom: 8px; transform-origin: bottom right; pointer-events: none; }
+    #export-logo-preview img { max-width: 90px; max-height: 40px; display: block; }
+    #export-logo-preview .wm-text-preview { font-size: 13px; font-weight: 700; color: #fff; white-space: nowrap; text-shadow: 0 1px 6px rgba(0, 0, 0, 0.85); }
+    .export-lang-row, .checkbox-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+    .export-lang-row { align-items: stretch; }
+    .checkbox-grid { margin-top: 8px; }
+    .checkbox-card { display: flex; align-items: flex-start; gap: 9px; padding: 10px 11px; border-radius: 12px; background: rgba(255, 255, 255, 0.05); border: 1px solid rgba(255, 255, 255, 0.1); cursor: pointer; }
+    .checkbox-card:hover { background: rgba(255, 255, 255, 0.09); }
+    .checkbox-card input { margin-top: 2px; accent-color: var(--accent); width: 15px; height: 15px; flex-shrink: 0; }
+    .cb-title { font-size: 12px; font-weight: 600; color: #fff; }
+    .cb-sub { font-size: 11px; color: var(--text-muted); margin-top: 2px; }
+    .export-summary-box { background: rgba(var(--accent-rgb), 0.08); border: 1px solid rgba(var(--accent-rgb), 0.24); border-radius: 12px; padding: 10px 12px; font-size: 12px; color: var(--text-sub); margin-bottom: 14px; line-height: 1.5; }
+    .modal-footer { display: flex; justify-content: flex-end; gap: 10px; margin-top: 20px; }
+    .btn-ghost { background: rgba(255, 255, 255, 0.1); color: var(--text-sub); }
+    .btn-ghost:hover { background: rgba(255, 255, 255, 0.16); color: #fff; }
+    #toast-box { position: fixed; top: 76px; left: 50%; transform: translateX(-50%); z-index: 90; pointer-events: none; opacity: 0; transition: opacity 0.28s ease; }
+    #toast-box.show { opacity: 1; }
+    .toast-pill { padding: 9px 16px; border-radius: 999px; font-size: 13px; font-weight: 500; color: #fff; display: flex; align-items: center; gap: 8px; border: 1px solid rgba(var(--accent-rgb), 0.45); max-width: 92vw; }
+    @keyframes spinSlow { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+    .spin-slow { animation: spinSlow 8s linear infinite; }
+    @media (max-width: 720px) {
+      #compass-pill { display: none !important; }
+      .icon-btn { padding: 5px 7px; font-size: 11px; gap: 4px; }
+      .checkbox-grid, .export-lang-row { grid-template-columns: 1fr; }
+      .top-actions { width: 100%; justify-content: flex-end; }
+      .zoom-track { width: 120px; }
+    }
+  </style>
+</head>
+<body>
+  <canvas id="gl-canvas"></canvas>
+  <div id="drop-overlay">
+    <div>
+      <div class="drop-icon-wrap"><svg width="36" height="36" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" /></svg></div>
+      <h2 id="drop-title" style="font-size: 20px; font-weight: 700; margin-bottom: 6px;">释放鼠标批量导入 360° 全景图</h2>
+      <p id="drop-sub" style="font-size: 13px; color: #bae6fd;">支持单张或多张 JPG / PNG / WebP（7560×3780、8K、12K+ 自动网格瓦片切割无损渲染）</p>
+    </div>
+  </div>
+
+  <header id="top-bar" class="ui-auto-hide">
+    <div class="glass-panel brand-card">
+      <div class="brand-logo"><svg width="20" height="20" fill="none" stroke="#fff" stroke-width="2.2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" /><ellipse cx="12" cy="12" rx="9" ry="3.5" /><path d="M12 3a14.5 14.5 0 0 1 0 18M12 3a14.5 14.5 0 0 0 0 18" /></svg></div>
+      <div class="brand-info">
+        <div class="brand-title-row">
+          <span id="current-scene-title" class="brand-title">日落山谷全景</span>
+          <span id="badge-res" class="badge">4096 × 2048</span>
+          <span id="badge-tile" class="badge tile-badge">2×1 瓦片</span>
+        </div>
+        <div id="image-meta" class="image-meta">支持 WASD 旋转 · ↑/↓ 缩放 · ←/→ 或 PgUp/PgDn 切换场景</div>
+      </div>
+    </div>
+
+    <div class="top-actions">
+      <div class="glass-panel tool-group">
+        <button id="btn-autorotate" class="icon-btn active" title="自动旋转 (Space)">
+          <svg id="icon-rotate" class="spin-slow" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
+          <span id="lbl-rotate">旋转</span>
+        </button>
+        <button id="btn-gyro" class="icon-btn" title="手机陀螺仪体感">
+          <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 18h.01M8 21h8a2 2 0 002-2V5a2 2 0 00-2-2H8a2 2 0 00-2 2v14a2 2 0 002 2z" /></svg>
+          <span id="lbl-gyro">陀螺仪</span>
+        </button>
+        <button id="btn-vr" class="icon-btn" title="VR 左右分屏并自动启用陀螺仪 (V)">
+          <svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M3 8a2 2 0 012-2h14a2 2 0 012 2v7a2 2 0 01-2 2h-4.382a1 1 0 01-.894-.553l-.948-1.894a1 1 0 00-1.552 0l-.948 1.894A1 1 0 019.382 17H5a2 2 0 01-2-2V8z" /><circle cx="8" cy="11.5" r="1.5" /><circle cx="16" cy="11.5" r="1.5" /></svg>
+          <span>VR</span>
+        </button>
+        <button id="btn-reset" class="icon-btn" title="重置视角 (R)">
+          <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" /></svg>
+          <span id="lbl-reset">重置</span>
+        </button>
+        <button id="btn-theme" class="icon-btn" title="主题颜色、透明度与模糊度设置">
+          <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 3a9 9 0 00-9 9c0 4.97 4.03 9 9 9a2 2 0 002-2v-.5a2 2 0 012-2h1.5A3.5 3.5 0 0021 13c0-5.52-4.03-10-9-10z" /><circle cx="8.5" cy="10" r="1" fill="currentColor" /><circle cx="12" cy="8" r="1" fill="currentColor" /><circle cx="15.5" cy="10" r="1" fill="currentColor" /></svg>
+          <span id="lbl-theme">主题</span>
+        </button>
+        <button id="btn-shortcuts" class="icon-btn" title="查看键盘快捷键 (K / ?)">
+          <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="2" y="6" width="20" height="12" rx="2" /><path stroke-linecap="round" d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M7 14h10" /></svg>
+          <span id="lbl-shortcuts">快捷键</span>
+        </button>
+        <button id="btn-lang" class="icon-btn" title="切换语言 / Switch Language">
+          <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" /><path d="M3.6 9h16.8M3.6 15h16.8" /><path d="M12 3a12 12 0 010 18M12 3a12 12 0 000 18" /></svg>
+          <span id="lbl-lang-code" style="font-weight:700;">中</span>
+        </button>
+        <button id="btn-about" class="icon-btn" title="关于">
+          <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" /><path stroke-linecap="round" stroke-linejoin="round" d="M12 16v-4m0-4h.01" /></svg>
+          <span id="lbl-about">关于</span>
+        </button>
+        <button id="btn-hide-ui" class="icon-btn" title="纯净沉浸模式 (H)">
+          <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21" /></svg>
+          <span id="lbl-pure">沉浸</span>
+        </button>
+        <button id="btn-fullscreen" class="icon-btn" title="全屏查看 (F / 双击画面)">
+          <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4" /></svg>
+          <span id="lbl-fs">全屏</span>
+        </button>
+      </div>
+      <input type="file" id="file-input" accept="image/jpeg,image/png,image/webp,image/*" multiple style="display:none" />
+      <button id="btn-open" class="glass-panel btn btn-secondary">
+        <svg width="16" height="16" fill="none" style="color: var(--accent);" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4" /></svg>
+        <span id="lbl-add-pano">添加全景图</span>
+      </button>
+      <button id="btn-open-export" class="btn btn-primary">
+        <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
+        <span id="lbl-export-btn">导出单文件 HTML</span>
+      </button>
+    </div>
+  </header>
+
+  <div id="compass-pill" class="glass-panel ui-auto-hide"><span class="status-dot"></span><span id="angle-readout">正北 0° · 仰角 0° · 视野 75°</span></div>
+
+  <aside id="theme-panel" class="glass-panel ui-auto-hide">
+    <div class="popover-header"><span id="lbl-theme-title">界面主题设置</span><button id="btn-close-theme" class="icon-close" style="padding:2px;" title="关闭"><svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" /></svg></button></div>
+    <div class="theme-section">
+      <div class="theme-row-label"><span id="lbl-theme-presets">预设主题风格</span></div>
+      <div id="theme-swatches" class="swatch-grid"></div>
+      <div class="color-pickers-row">
+        <label class="color-picker-box"><span id="lbl-theme-accent">强调色</span><input type="color" id="theme-accent-input" value="#38bdf8" /></label>
+        <label class="color-picker-box"><span id="lbl-theme-panel">面板底色</span><input type="color" id="theme-panel-input" value="#0d1424" /></label>
+      </div>
+    </div>
+    <div class="theme-section"><div class="theme-row-label"><span id="lbl-theme-opacity">面板透明度</span><span id="theme-opacity-val" class="theme-val">76%</span></div><input type="range" id="theme-opacity-slider" min="15" max="95" value="76" style="width:100%" /></div>
+    <div class="theme-section"><div class="theme-row-label"><span id="lbl-theme-blur">毛玻璃模糊度</span><span id="theme-blur-val" class="theme-val">18px</span></div><input type="range" id="theme-blur-slider" min="0" max="36" value="18" style="width:100%" /></div>
+    <div class="theme-section"><button id="btn-reset-theme" class="theme-reset-btn">恢复默认主题</button></div>
+  </aside>
+
+  <aside id="shortcut-panel" class="glass-panel ui-auto-hide">
+    <div class="popover-header"><span id="lbl-sc-title">键盘快捷键说明</span><button id="btn-close-shortcuts" class="icon-close" style="padding:2px;" title="关闭"><svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" /></svg></button></div>
+    <div class="shortcut-list">
+      <div class="shortcut-row"><span id="lbl-sc-rot">旋转视口</span><span class="shortcut-keys"><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd></span></div>
+      <div class="shortcut-row"><span id="lbl-sc-zoom">放大 / 缩小视角</span><span class="shortcut-keys"><kbd>↑</kbd><kbd>↓</kbd></span></div>
+      <div class="shortcut-row"><span id="lbl-sc-scene">切换全景场景</span><span class="shortcut-keys"><kbd>←</kbd><kbd>→</kbd> / <kbd>PgUp</kbd><kbd>PgDn</kbd></span></div>
+      <div class="shortcut-row"><span id="lbl-sc-vr">VR 分屏（含陀螺仪）</span><span class="shortcut-keys"><kbd>V</kbd></span></div>
+      <div class="shortcut-row"><span id="lbl-sc-auto">暂停 / 开启旋转</span><span class="shortcut-keys"><kbd>Space</kbd></span></div>
+      <div class="shortcut-row"><span id="lbl-sc-reset">重置当前视角</span><span class="shortcut-keys"><kbd>R</kbd></span></div>
+      <div class="shortcut-row"><span id="lbl-sc-fs">全屏查看</span><span class="shortcut-keys"><kbd>F</kbd> / <span id="lbl-sc-dbl">双击</span></span></div>
+      <div class="shortcut-row"><span id="lbl-sc-pure">沉浸纯净模式</span><span class="shortcut-keys"><kbd>H</kbd></span></div>
+    </div>
+  </aside>
+
+  <aside id="about-panel" class="glass-panel ui-auto-hide">
+    <div class="popover-header"><span id="lbl-about-title">关于</span><button id="btn-close-about" class="icon-close" style="padding:2px;" title="关闭"><svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" /></svg></button></div>
+    <div class="about-brand">
+      <div class="brand-logo" style="width:32px; height:32px; border-radius:9px;"><svg width="17" height="17" fill="none" stroke="#fff" stroke-width="2.2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" /><ellipse cx="12" cy="12" rx="9" ry="3.5" /><path d="M12 3a14.5 14.5 0 0 1 0 18M12 3a14.5 14.5 0 0 0 0 18" /></svg></div>
+      <div><div id="lbl-about-app" style="font-size:13px; font-weight:700; color:#fff;">全景视界 360°</div><div id="lbl-about-sub" style="font-size:11px; color:var(--text-muted);">超清多瓦片全景查看与打包工具</div></div>
+    </div>
+    <div id="lbl-about-desc" class="about-desc">轻量级纯离线 360° 全景看图与多场景单文件打包工具。内置多瓦片 WebGL 渲染引擎，支持超高清原图无损切分、VR 双目陀螺仪与自定义水印导出。</div>
+    <div class="about-list">
+      <div class="about-row"><span id="lbl-about-author">作者</span><span class="about-val">cgpiece</span></div>
+      <div class="about-row"><span id="lbl-about-ver">版本号</span><span class="about-val">1.0</span></div>
+      <!-- 1) 个人网站 / YouTube / 邮箱模板：取消注释并替换为真实链接即可显示（已内置中英文切换） -->
+      
+      <div class="about-row"><span id="lbl-about-site">Github</span><a class="about-link" href="https://github.com/cgpiece/pano360" target="_blank" rel="noopener noreferrer">cgpiece/pano360</a></div>
+      <div class="about-row"><span id="lbl-about-yt">YouTube</span><a class="about-link" href="https://www.youtube.com/@cgpiece" target="_blank" rel="noopener noreferrer">@cgpiece</a></div>
+      <!-- <div class="about-row"><span id="lbl-about-email">联系邮箱</span><a class="about-link" href="mailto:contact@example.com">contact@example.com</a></div> -->
+     
+    </div>
+    <!-- 2) 捐赠 / 请我喝杯咖啡模板：取消注释并填写链接即可；data-qr 会自动将链接转为可扫二维码（已内置中英文切换） -->
+    
+    <div class="about-donate-box">
+      <div class="about-donate-title">
+        <svg width="14" height="14" fill="none" style="color:var(--accent);flex-shrink:0;" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M18 8h1a4 4 0 010 8h-1M3 8h15v8a4 4 0 01-4 4H7a4 4 0 01-4-4V8zM7 3v2m4-2v2m4-2v2" /></svg>
+        <span id="lbl-about-donate">请我喝杯咖啡</span>
+      </div>
+      <div class="about-donate-links">
+        <!-- <a class="donate-pill" href="https://www.buymeacoffee.com/cgpiece" target="_blank" rel="noopener noreferrer">Buy Me a Coffee</a> -->
+        <a class="donate-pill" href="https://ko-fi.com/cgpiece" target="_blank" rel="noopener noreferrer">Ko-fi</a>
+        <a class="donate-pill" href="https://paypal.me/cgpiece" target="_blank" rel="noopener noreferrer">PayPal</a>
+        <!-- <a class="donate-pill" href="https://cgpiece.gumroad.com" target="_blank" rel="noopener noreferrer">Gumroad</a> -->
+      </div>
+      <div class="about-qr-grid">
+        <div class="qr-card" data-qr="wxp://f2f0UWjPS5SjvbZZZTUa75TPd6Wi7v_K6mL29b8GMY_3A4POxH-qkc8FCTgqEHM7Y0Ed" data-qr-label-zh="微信赞赏" data-qr-label-en="WeChat Pay"></div>
+        <div class="qr-card" data-qr="https://qr.alipay.com/fkx18471fxm8xkunuqesd42" data-qr-label-zh="支付宝" data-qr-label-en="Alipay"></div>
+      </div>
+    </div>
+   
+  </aside>
+
+  <div id="zoom-hud">
+    <svg width="15" height="15" fill="none" style="color: var(--accent);" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7" /><path stroke-linecap="round" d="M21 21l-4.35-4.35M11 8v6M8 11h6" /></svg>
+    <span id="zoom-label" class="zoom-label">75° · 1.0×</span>
+    <div id="zoom-track" class="zoom-track" title="拖拽或点击调整视野缩放"><div id="zoom-fill" class="zoom-fill"></div><div id="zoom-thumb" class="zoom-thumb"></div></div>
+  </div>
+
+  <div id="vr-overlay">
+    <div class="vr-divider"></div><div class="vr-eye-frame vr-eye-left"></div><div class="vr-eye-frame vr-eye-right"></div>
+    <div class="vr-reticle vr-reticle-left"></div><div class="vr-reticle vr-reticle-right"></div>
+    <button id="btn-exit-vr" class="glass-panel ui-auto-hide"><svg width="14" height="14" fill="none" style="color: var(--accent);" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" /></svg><span id="lbl-exit-vr">退出 VR 分屏 (V / ESC)</span></button>
+  </div>
+
+  <button id="btn-restore-ui" class="glass-panel" title="显示界面控件 (H)"><svg width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path stroke-linecap="round" stroke-linejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg></button>
+
+  <aside id="scene-dock-wrapper" class="ui-auto-hide">
+    <div id="dock-pill" class="glass-panel" title="点击或悬停展开场景列表"><span class="status-dot" style="background:var(--accent); box-shadow:0 0 8px var(--accent);"></span><span id="pill-label">场景列表 (2) · 日落山谷全景</span></div>
+    <div id="dock-panel" class="glass-panel">
+      <div class="dock-header">
+        <div class="dock-title"><svg width="14" height="14" fill="none" style="color: var(--accent);" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z" /></svg><span id="dock-count-title">全景场景 (2)</span><span id="lbl-dock-hint" class="dock-hint">· 拖拽卡片可排序</span></div>
+        <div class="dock-controls">
+          <button id="btn-pin-dock" class="dock-mini-btn" title="开启后不再自动收起"><svg width="11" height="11" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z" /></svg><span id="pin-label">自动隐藏</span></button>
+          <button id="btn-collapse-dock" class="dock-mini-btn" title="立即收起"><svg width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" /></svg></button>
+        </div>
+      </div>
+      <div id="scene-list"></div>
+    </div>
+  </aside>
+
+  <div id="edit-scene-modal" class="modal-backdrop">
+    <div class="glass-modal modal-card" style="max-width: 440px;">
+      <div class="modal-header">
+        <div class="modal-title-group"><div class="modal-icon"><svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg></div><div><h3 id="lbl-edit-title">编辑场景信息</h3><p id="lbl-edit-sub">自定义场景名称、默认初始视角与正北方向</p></div></div>
+        <button id="btn-close-edit" class="icon-close"><svg width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" /></svg></button>
+      </div>
+      <div class="form-group"><label id="lbl-edit-name" class="form-label">场景名称</label><input type="text" id="edit-scene-name" class="form-input" placeholder="输入场景标题..." /></div>
+      <div class="form-group"><label id="lbl-edit-desc" class="form-label">场景描述 / 导览提示</label><input type="text" id="edit-scene-desc" class="form-input" placeholder="例如：客厅全景 · 朝南落地窗视角" /></div>
+      <div class="edit-action-card">
+        <button type="button" id="btn-record-default-view" class="edit-action-btn"><svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" /></svg><span id="lbl-edit-btn-view">将当前画面设为默认视角</span></button>
+        <div id="edit-view-status" class="edit-action-status">当前默认：正北 0° · 仰角 0° · 视野 75°</div>
+      </div>
+      <div class="edit-action-card">
+        <button type="button" id="btn-set-north" class="edit-action-btn"><svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" /><polygon points="12,6 14.5,12 12,10.5 9.5,12" fill="currentColor" /><path stroke-linecap="round" d="M12 10.5V18" /></svg><span id="lbl-edit-btn-north">将当前画面设为正北</span></button>
+        <div id="edit-north-status" class="edit-action-status">当前正北偏移：0°</div>
+      </div>
+      <div class="modal-footer"><button id="btn-cancel-edit" class="btn btn-ghost">取消</button><button id="btn-save-edit" class="btn btn-primary">保存修改</button></div>
+    </div>
+  </div>
+
+  <div id="export-modal" class="modal-backdrop">
+    <div class="glass-modal modal-card">
+      <div class="modal-header">
+        <div class="modal-title-group"><div class="modal-icon"><svg width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4" /></svg></div><div><h3 id="lbl-exp-title">导出多场景单文件 HTML</h3><p id="lbl-exp-sub">内置瓦片切割渲染引擎 + VR 陀螺仪分屏 + 沉浸模式 + 当前界面主题</p></div></div>
+        <button id="btn-close-export" class="icon-close"><svg width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" /></svg></button>
+      </div>
+      <div id="export-scene-summary" class="export-summary-box"></div>
+      <div class="form-group"><label id="lbl-exp-pagetitle" class="form-label">分享合集网页标题</label><input type="text" id="export-title" class="form-input" placeholder="输入全景作品集标题..." /></div>
+      <div class="form-group">
+        <div class="form-label-row"><label id="lbl-exp-quality" class="form-label">导出画质与分块策略</label><span id="export-size-estimate" class="size-est">预估总体积：计算中...</span></div>
+        <select id="export-quality-preset" class="form-select">
+          <option id="opt-smart" value="smart_ultra">智能超清瓦片（推荐 · 保留原图细节并自动切分为 ≤2048px 瓦片）</option>
+          <option id="opt-standard" value="standard">标准分享（单张缩放至 4096×2048 · 2×1 瓦片 · 体积适中）</option>
+          <option id="opt-compact" value="compact">轻量微信分享（单张缩放至 2048×1024 · 体积最小）</option>
+        </select>
+        <div id="custom-quality-row" class="quality-slider-row"><span id="lbl-exp-jpeg" style="font-size:12px; color:#94a3b8;">JPEG 编码质量:</span><input type="range" id="export-jpeg-quality" min="55" max="96" value="86" style="flex:1" /><span id="export-jpeg-label" style="font-size:12px; font-family:monospace; width:36px; text-align:right;">86%</span></div>
+      </div>
+      <div class="form-group">
+        <label id="lbl-exp-logo" class="form-label">Logo 水印</label>
+        <div class="logo-config-box">
+          <div class="segmented-group">
+            <button type="button" id="seg-logo-none" class="seg-btn active" data-logo-mode="none">无 Logo</button>
+            <button type="button" id="seg-logo-image" class="seg-btn" data-logo-mode="image">上传图片</button>
+            <button type="button" id="seg-logo-text" class="seg-btn" data-logo-mode="text">文字水印</button>
+          </div>
+          <div id="logo-image-controls" style="display:none;"><div class="logo-upload-row"><input type="file" id="export-logo-file" accept="image/png,image/jpeg,image/webp,image/svg+xml,image/*" style="display:none" /><button type="button" id="btn-upload-logo" class="logo-upload-btn">选择 Logo 图片</button><span id="export-logo-filename" class="logo-file-name">未选择图片（支持 PNG 透明底 / SVG）</span></div></div>
+          <div id="logo-text-controls" style="display:none; margin-bottom:10px;"><input type="text" id="export-logo-text" class="form-input" placeholder="输入水印文字，例如：© cgpiece 360°" /></div>
+          <div id="logo-style-controls" style="display:none;">
+            <div class="quality-slider-row" style="margin-top:0;"><span id="lbl-logo-opacity" style="font-size:11px; color:#94a3b8; width:64px;">透明度:</span><input type="range" id="export-logo-opacity" min="10" max="100" value="75" style="flex:1" /><span id="export-logo-opacity-val" style="font-size:11px; font-family:monospace; width:38px; text-align:right;">75%</span></div>
+            <div class="quality-slider-row" style="margin-top:8px;"><span id="lbl-logo-scale" style="font-size:11px; color:#94a3b8; width:64px;">大小缩放:</span><input type="range" id="export-logo-scale" min="40" max="250" step="5" value="100" style="flex:1" /><span id="export-logo-scale-val" style="font-size:11px; font-family:monospace; width:38px; text-align:right;">1.0×</span></div>
+            <div class="logo-preview-stage"><span id="lbl-logo-preview-hint" class="logo-preview-hint">右下角缩放效果预览</span><div id="export-logo-preview"></div></div>
+          </div>
+        </div>
+      </div>
+      <div class="form-group">
+        <label id="lbl-exp-lang-section" class="form-label">导出页面语言</label>
+        <div class="export-lang-row">
+          <select id="export-lang-select" class="form-select"><option value="zh">简体中文</option><option value="en">English</option></select>
+          <label class="checkbox-card" style="padding:8px 11px;"><input type="checkbox" id="export-show-lang" /><div><div id="lbl-exp-show-lang" class="cb-title">显示语言切换栏</div><div id="lbl-exp-show-lang-sub" class="cb-sub">默认关闭，界面更精简</div></div></label>
+        </div>
+      </div>
+      <div class="checkbox-grid">
+        <label class="checkbox-card"><input type="checkbox" id="export-autorotate" checked /><div><div id="lbl-exp-autorot" class="cb-title">打开后自动缓慢旋转</div><div id="lbl-exp-autorot-sub" class="cb-sub">用户拖拽时自动暂停</div></div></label>
+        <label class="checkbox-card"><input type="checkbox" id="export-show-compass" /><div><div id="lbl-exp-show-compass" class="cb-title">显示视角信息</div><div id="lbl-exp-show-compass-sub" class="cb-sub">实时显示方向、旋转角度、仰角与视野</div></div></label>
+      </div>
+      <div class="modal-footer"><button id="btn-cancel-export" class="btn btn-ghost">取消</button><button id="btn-confirm-export" class="btn btn-primary"><svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg><span id="btn-export-text">生成并下载单文件 HTML</span></button></div>
+    </div>
+  </div>
+
+  <div id="toast-box"><div class="glass-panel toast-pill"><span class="status-dot" style="background:var(--accent); box-shadow:0 0 8px var(--accent);"></span><span id="toast-msg">提示信息</span></div></div>
+
+  <script>
+    const COMPASS_DIRS = { zh: ['正北', '东北', '正东', '东南', '正南', '西南', '正西', '西北'], en: ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'] };
+    function getCardinalLabel(deg, lang = currentLang) {
+      const norm = ((deg % 360) + 360) % 360;
+      return (COMPASS_DIRS[lang] || COMPASS_DIRS.zh)[Math.floor((norm + 22.5) / 45) % 8];
+    }
+
+    const I18N = {
+      zh: {
+        pageTitle: '全景视界 360° — 超清瓦片全景查看与多场景单文件打包工具',
+        dropTitle: '释放鼠标批量导入 360° 全景图',
+        dropSub: '支持单张或多张 JPG / PNG / WebP（7560×3780、8K、12K+ 自动网格瓦片切割无损渲染）',
+        metaHint: '支持 WASD 旋转 · ↑/↓ 缩放 · ←/→ 或 PgUp/PgDn 切换场景',
+        btnRotate: '旋转', btnGyro: '陀螺仪', btnReset: '重置', btnTheme: '主题', btnShortcuts: '快捷键',
+        btnAbout: '关于', btnPure: '沉浸', btnFs: '全屏', btnAddPano: '添加全景图', btnExport: '导出单文件 HTML', langBadge: '中',
+        compassFmt: (y, p, f) => `${getCardinalLabel(y, 'zh')} ${y}° · 仰角 ${p}° · 视野 ${f}°`,
+        themeTitle: '界面主题设置', themePresets: '预设主题风格', themeAccent: '强调色', themePanel: '面板底色',
+        themeOpacity: '面板透明度', themeBlur: '毛玻璃模糊度', themeReset: '恢复默认主题',
+        scTitle: '键盘快捷键说明', scRot: '旋转视口', scZoom: '放大 / 缩小视角', scScene: '切换全景场景',
+        scVr: 'VR 分屏（含陀螺仪）', scAuto: '暂停 / 开启旋转', scReset: '重置当前视角', scFs: '全屏查看', scDbl: '双击', scPure: '沉浸纯净模式',
+        aboutTitle: '关于', aboutApp: '全景视界 360°', aboutSub: '超清多瓦片全景查看与打包工具',
+        aboutDesc: '轻量级纯离线 360° 全景看图与多场景单文件打包工具。内置多瓦片 WebGL 渲染引擎，支持超高清原图无损切分、VR 双目陀螺仪与自定义水印导出。',
+        aboutAuthor: '作者', aboutVer: '版本号', aboutSite: '个人网站', aboutYt: 'YouTube', aboutEmail: '联系邮箱', aboutDonate: '请我喝杯咖啡',
+        exitVr: '退出 VR 分屏 (V / ESC)', dockPillFmt: (n, name) => `场景列表 (${n}) · ${name}`, dockCountFmt: (n) => `全景场景 (${n})`,
+        dockHint: '· 拖拽卡片可排序', dockAutoHide: '自动隐藏', dockPinned: '已固定', dockAddCard: '添加图片',
+        tileCountFmt: (c, r) => `${c}×${r}块`, tileBadgeFmt: (c, r, px) => `${c}×${r} 瓦片 (${px}px)`,
+        editTitle: '编辑场景信息', editSub: '自定义场景名称、默认初始视角与正北方向',
+        editName: '场景名称', editDesc: '场景描述 / 导览提示',
+        editBtnView: '将当前画面设为默认视角', editBtnViewRecorded: '已记录当前视角（点击保存生效）',
+        editBtnNorth: '将当前画面设为正北', editBtnNorthRecorded: '已标记当前画面为正北（点击保存生效）',
+        editViewCurrentFmt: (y, p, f) => `当前默认：${getCardinalLabel(y, 'zh')} ${y}° · 仰角 ${p}° · 视野 ${f}°`,
+        editViewNewFmt: (y, p, f) => `待保存新默认视角：${getCardinalLabel(y, 'zh')} ${y}° · 仰角 ${p}° · 视野 ${f}°`,
+        editNorthCurrentFmt: (off) => `当前正北偏移：${Math.round(off)}°`,
+        editNorthNewFmt: (off) => `待保存新正北偏移：${Math.round(off)}°（当前视角将变为正北 0°）`,
+        cancel: '取消', save: '保存修改',
+        expTitle: '导出多场景单文件 HTML', expSub: '内置瓦片切割渲染引擎 + VR 陀螺仪分屏 + 沉浸模式 + 当前界面主题',
+        expSummaryFmt: (n) => `即将打包导出 <strong>${n}</strong> 个全景场景`,
+        expPageTitle: '分享合集网页标题', expQuality: '导出画质与分块策略',
+        optSmart: '智能超清瓦片（推荐 · 保留原图细节并自动切分为 ≤2048px 瓦片）',
+        optStandard: '标准分享（单张缩放至 4096×2048 · 2×1 瓦片 · 体积适中）',
+        optCompact: '轻量微信分享（单张缩放至 2048×1024 · 体积最小）',
+        expJpeg: 'JPEG 编码质量:', expLogo: 'Logo 水印', logoNone: '无 Logo', logoImg: '上传图片', logoText: '文字水印',
+        logoUploadBtn: '选择 Logo 图片', logoNoFile: '未选择图片（支持 PNG 透明底 / SVG）',
+        logoTextPlaceholder: '输入水印文字，例如：© cgpiece 360°', logoOpacity: '透明度:', logoScale: '大小缩放:',
+        logoPreviewHint: '右下角缩放效果预览', logoNeedImg: '请上传 Logo 图片',
+        expLangSection: '导出页面语言', expShowLang: '显示语言切换栏', expShowLangSub: '默认关闭，界面更精简',
+        expAutoRot: '打开后自动缓慢旋转', expAutoRotSub: '用户拖拽时自动暂停',
+        expShowCompass: '显示视角信息', expShowCompassSub: '实时显示方向、旋转角度、仰角与视野',
+        expBtnText: '生成并下载单文件 HTML', expWorking: '正在切分瓦片并打包...',
+        sizeEstFmt: (sz, n) => `预估总体积：约 ${sz} (${n} 个场景)`,
+        builtInSunset: '日落山谷全景', builtInSunsetDesc: '内置示范场景 1 · 4096×2048 · 2×1 瓦片无缝渲染',
+        builtInAurora: '极光雪原星空', builtInAuroraDesc: '内置示范场景 2 · 4096×2048 · 2×1 瓦片无缝渲染',
+        toastReorder: (name, pos) => `已将「${name}」调整至第 ${pos} 位`, toastKeepOne: '至少需要保留 1 个全景场景',
+        toastRemoved: (name) => `已移除场景「${name}」`, toastInvalidImg: '请选择有效的全景图片文件（JPG / PNG / WebP）',
+        toastParsing: (n) => `正在解析并切分 ${n} 张全景图...`,
+        toastImported: (n, c, r) => `成功导入 ${n} 张全景图！当前已切分为 ${c}×${r} 瓦片高清渲染`,
+        toastDecodeFail: (n) => `文件 ${n} 解码失败，已跳过`, toastSceneSaved: '场景信息已保存',
+        toastNeedLogoImg: '请先选择一张 Logo 图片，或切换为“无 Logo” / “文字水印”',
+        toastExportOk: (n, sz) => `导出成功！共打包 ${n} 个场景，总体积 ${sz}`,
+        toastExportFail: '导出失败：场景总像素过大，请尝试切换“标准分享”或“轻量微信分享”档位'
+      },
+      en: {
+        pageTitle: 'Panorama 360° — Ultra-HD Tiled Viewer & Multi-Scene Single-File Packager',
+        dropTitle: 'Drop 360° Panoramas to Import',
+        dropSub: 'Supports JPG / PNG / WebP (Auto-sliced into GPU-safe tiles for 8K / 12K+ images)',
+        metaHint: 'WASD to look · ↑/↓ to zoom · ←/→ or PgUp/PgDn to switch scenes',
+        btnRotate: 'Rotate', btnGyro: 'Gyro', btnReset: 'Reset', btnTheme: 'Theme', btnShortcuts: 'Keys',
+        btnAbout: 'About', btnPure: 'Hide UI', btnFs: 'Full', btnAddPano: 'Add Panos', btnExport: 'Export HTML', langBadge: 'EN',
+        compassFmt: (y, p, f) => `${getCardinalLabel(y, 'en')} ${y}° · Pitch ${p}° · FOV ${f}°`,
+        themeTitle: 'Theme Settings', themePresets: 'Color Presets', themeAccent: 'Accent', themePanel: 'Panel',
+        themeOpacity: 'Panel Opacity', themeBlur: 'Backdrop Blur', themeReset: 'Reset to Default',
+        scTitle: 'Keyboard Shortcuts', scRot: 'Look Around', scZoom: 'Zoom In / Out', scScene: 'Switch Scene',
+        scVr: 'VR Split + Gyro', scAuto: 'Toggle Auto-Rotate', scReset: 'Reset View', scFs: 'Fullscreen', scDbl: 'Dbl-Click', scPure: 'Immersive Mode',
+        aboutTitle: 'About', aboutApp: 'Panorama 360°', aboutSub: 'Ultra-HD Tiled Viewer & Packager',
+        aboutDesc: 'A zero-dependency offline 360° panorama viewer & single-file HTML packager featuring tiled WebGL rendering, 3DOF VR gyro tracking, and custom watermarks.',
+        aboutAuthor: 'Author', aboutVer: 'Version', aboutSite: 'Github', aboutYt: 'YouTube', aboutEmail: 'Email', aboutDonate: 'Buy Me a Coffee',
+        exitVr: 'Exit VR Mode (V / ESC)', dockPillFmt: (n, name) => `Scenes (${n}) · ${name}`, dockCountFmt: (n) => `Scenes (${n})`,
+        dockHint: '· Drag to reorder', dockAutoHide: 'Auto-hide', dockPinned: 'Pinned', dockAddCard: 'Add Image',
+        tileCountFmt: (c, r) => `${c}×${r}`, tileBadgeFmt: (c, r, px) => `${c}×${r} Tiles (${px}px)`,
+        editTitle: 'Edit Scene Info', editSub: 'Customize scene title, default camera view & True North',
+        editName: 'Scene Title', editDesc: 'Description / Note',
+        editBtnView: 'Set Current View as Default', editBtnViewRecorded: 'Current View Recorded (Save to Apply)',
+        editBtnNorth: 'Set Current View as True North', editBtnNorthRecorded: 'True North Marked (Save to Apply)',
+        editViewCurrentFmt: (y, p, f) => `Saved Default: ${getCardinalLabel(y, 'en')} ${y}° · Pitch ${p}° · FOV ${f}°`,
+        editViewNewFmt: (y, p, f) => `Pending Default: ${getCardinalLabel(y, 'en')} ${y}° · Pitch ${p}° · FOV ${f}°`,
+        editNorthCurrentFmt: (off) => `Current North Offset: ${Math.round(off)}°`,
+        editNorthNewFmt: (off) => `Pending North Offset: ${Math.round(off)}° (Current view becomes N 0°)`,
+        cancel: 'Cancel', save: 'Save Changes',
+        expTitle: 'Export Single-File Multi-Scene HTML', expSub: 'Built-in tiled WebGL engine + VR 3DOF gyro + Immersive mode + Theme',
+        expSummaryFmt: (n) => `Ready to export <strong>${n}</strong> panorama scene(s)`,
+        expPageTitle: 'Webpage Title', expQuality: 'Resolution & Tiling Preset',
+        optSmart: 'Smart Ultra Tiles (Recommended · Keeps full detail in ≤2048px tiles)',
+        optStandard: 'Standard Share (Resized to 4096×2048 · 2×1 tiles)',
+        optCompact: 'Compact Share (Resized to 2048×1024 · Smallest file size)',
+        expJpeg: 'JPEG Quality:', expLogo: 'Logo Watermark', logoNone: 'None', logoImg: 'Upload Image', logoText: 'Text Watermark',
+        logoUploadBtn: 'Choose Logo Image', logoNoFile: 'No image chosen (PNG / SVG supported)',
+        logoTextPlaceholder: 'Watermark text, e.g. © cgpiece 360°', logoOpacity: 'Opacity:', logoScale: 'Scale:',
+        logoPreviewHint: 'Bottom-right scale preview', logoNeedImg: 'Please upload a logo image',
+        expLangSection: 'Export Language', expShowLang: 'Show language switcher', expShowLangSub: 'Hidden by default for clean UI',
+        expAutoRot: 'Auto-rotate on open', expAutoRotSub: 'Pauses when dragging',
+        expShowCompass: 'Show viewport angle info', expShowCompassSub: 'Displays direction, yaw, pitch & FOV',
+        expBtnText: 'Generate & Download HTML', expWorking: 'Slicing tiles & packaging...',
+        sizeEstFmt: (sz, n) => `Est. Size: ~${sz} (${n} scene${n > 1 ? 's' : ''})`,
+        builtInSunset: 'Sunset Valley 360°', builtInSunsetDesc: 'Built-in Demo 1 · 4096×2048 · 2×1 seamless tiles',
+        builtInAurora: 'Aurora Snowfield 360°', builtInAuroraDesc: 'Built-in Demo 2 · 4096×2048 · 2×1 seamless tiles',
+        toastReorder: (name, pos) => `Moved "${name}" to position #${pos}`, toastKeepOne: 'At least 1 scene must remain',
+        toastRemoved: (name) => `Removed scene "${name}"`, toastInvalidImg: 'Please select valid image files (JPG / PNG / WebP)',
+        toastParsing: (n) => `Decoding & slicing ${n} panorama(s)...`,
+        toastImported: (n, c, r) => `Imported ${n} panorama(s)! Rendered with ${c}×${r} tiles`,
+        toastDecodeFail: (n) => `Failed to decode ${n}, skipped`, toastSceneSaved: 'Scene info saved',
+        toastNeedLogoImg: 'Please upload a logo image, or switch to "None" / "Text Watermark"',
+        toastExportOk: (n, sz) => `Exported ${n} scene(s) successfully! Total size: ${sz}`,
+        toastExportFail: 'Export failed: image resolution too large, try Standard or Compact preset'
+      }
+    };
+
+    function detectBrowserLang() {
+      try { const saved = localStorage.getItem('pano360_lang_v1'); if (saved === 'zh' || saved === 'en') return saved; } catch (e) {}
+      return (navigator.language || navigator.userLanguage || 'en').toLowerCase().startsWith('zh') ? 'zh' : 'en';
+    }
+    let currentLang = detectBrowserLang();
+    function t(key) { return (I18N[currentLang] && I18N[currentLang][key]) || I18N.zh[key] || key; }
+
+    const QRGen = (function() {
+      const EXP = new Uint8Array(512), LOG = new Uint8Array(256); let x = 1;
+      for (let i = 0; i < 255; i++) { EXP[i] = x; LOG[x] = i; x <<= 1; if (x & 0x100) x ^= 0x11d; }
+      for (let i = 255; i < 512; i++) EXP[i] = EXP[i - 255];
+      const gfMul = (a, b) => (a === 0 || b === 0) ? 0 : EXP[LOG[a] + LOG[b]];
+      function rsGenPoly(ecLen) {
+        let poly = [1];
+        for (let i = 0; i < ecLen; i++) {
+          const next = new Array(poly.length + 1).fill(0), factor = EXP[i];
+          for (let j = 0; j < poly.length; j++) { next[j] ^= poly[j]; next[j + 1] ^= gfMul(poly[j], factor); }
+          poly = next;
+        }
+        return poly;
+      }
+      function rsEncode(data, ecLen) {
+        const gen = rsGenPoly(ecLen), res = new Uint8Array(data.length + ecLen); res.set(data);
+        for (let i = 0; i < data.length; i++) { const coef = res[i]; if (coef !== 0) for (let j = 0; j < gen.length; j++) res[i + j] ^= gfMul(gen[j], coef); }
+        return Array.from(res.slice(data.length));
+      }
+      const VERSIONS_M = [
+        null,
+        { size: 21, ecPerBlock: 10, blocks: [[1, 16]], align: [], maxBytes: 14 },
+        { size: 25, ecPerBlock: 16, blocks: [[1, 28]], align: [6, 18], maxBytes: 26 },
+        { size: 29, ecPerBlock: 26, blocks: [[1, 44]], align: [6, 22], maxBytes: 42 },
+        { size: 33, ecPerBlock: 18, blocks: [[2, 32]], align: [6, 26], maxBytes: 62 },
+        { size: 37, ecPerBlock: 24, blocks: [[2, 43]], align: [6, 30], maxBytes: 84 },
+        { size: 41, ecPerBlock: 16, blocks: [[4, 27]], align: [6, 34], maxBytes: 106 },
+        { size: 45, ecPerBlock: 18, blocks: [[4, 31]], align: [6, 22, 38], maxBytes: 122 },
+        { size: 49, ecPerBlock: 22, blocks: [[2, 38], [2, 39]], align: [6, 24, 42], maxBytes: 152 },
+        { size: 53, ecPerBlock: 22, blocks: [[3, 36], [2, 37]], align: [6, 26, 46], maxBytes: 180 },
+        { size: 57, ecPerBlock: 26, blocks: [[4, 43], [1, 44]], align: [6, 28, 50], maxBytes: 213 }
+      ];
+      function bchFormat(eccBits, mask) {
+        const data = (eccBits << 3) | mask; let d = data << 10;
+        for (let i = 14; i >= 10; i--) if ((d >> i) & 1) d ^= 0x537 << (i - 10);
+        return ((data << 10) | d) ^ 0x5412;
+      }
+      function bchVersion(ver) {
+        let d = ver << 12; for (let i = 17; i >= 12; i--) if ((d >> i) & 1) d ^= 0x1f25 << (i - 12);
+        return (ver << 12) | d;
+      }
+      function buildMatrix(text) {
+        const bytes = new TextEncoder().encode(text); let ver = -1;
+        for (let v = 1; v <= 10; v++) if (bytes.length <= VERSIONS_M[v].maxBytes) { ver = v; break; }
+        if (ver === -1) return null;
+        const spec = VERSIONS_M[ver], S = spec.size, totalData = spec.blocks.reduce((s, [cnt, len]) => s + cnt * len, 0), bits = [];
+        const pushBits = (val, n) => { for (let i = n - 1; i >= 0; i--) bits.push((val >> i) & 1); };
+        pushBits(0b0100, 4); pushBits(bytes.length, ver >= 10 ? 16 : 8);
+        for (let i = 0; i < bytes.length; i++) pushBits(bytes[i], 8);
+        const capBits = totalData * 8, term = Math.min(4, capBits - bits.length);
+        for (let i = 0; i < term; i++) bits.push(0); while (bits.length % 8 !== 0) bits.push(0);
+        let pIdx = 0; while (bits.length < capBits) { pushBits([0xec, 0x11][pIdx & 1], 8); pIdx++; }
+        const codewords = [];
+        for (let i = 0; i < bits.length; i += 8) { let b = 0; for (let j = 0; j < 8; j++) b = (b << 1) | bits[i + j]; codewords.push(b); }
+        const dataBlocks = [], ecBlocks = []; let offset = 0;
+        for (const [cnt, len] of spec.blocks) for (let k = 0; k < cnt; k++) { const blk = codewords.slice(offset, offset + len); offset += len; dataBlocks.push(blk); ecBlocks.push(rsEncode(blk, spec.ecPerBlock)); }
+        const finalBytes = [], maxD = Math.max(...dataBlocks.map(b => b.length));
+        for (let i = 0; i < maxD; i++) for (const b of dataBlocks) if (i < b.length) finalBytes.push(b[i]);
+        for (let i = 0; i < spec.ecPerBlock; i++) for (const b of ecBlocks) finalBytes.push(b[i]);
+        const finalBits = []; for (const byte of finalBytes) for (let i = 7; i >= 0; i--) finalBits.push((byte >> i) & 1);
+        const grid = Array.from({ length: S }, () => new Int8Array(S).fill(-1)), isFunc = Array.from({ length: S }, () => new Uint8Array(S));
+        const setMod = (r, c, v) => { grid[r][c] = v ? 1 : 0; isFunc[r][c] = 1; };
+        const placeFinder = (r0, c0) => {
+          for (let dr = -1; dr <= 7; dr++) for (let dc = -1; dc <= 7; dc++) {
+            const r = r0 + dr, c = c0 + dc; if (r < 0 || r >= S || c < 0 || c >= S) continue;
+            setMod(r, c, dr >= 0 && dr <= 6 && dc >= 0 && dc <= 6 && (dr === 0 || dr === 6 || dc === 0 || dc === 6 || (dr >= 2 && dr <= 4 && dc >= 2 && dc <= 4)));
+          }
+        };
+        placeFinder(0, 0); placeFinder(0, S - 7); placeFinder(S - 7, 0);
+        for (let i = 8; i < S - 8; i++) { setMod(6, i, i % 2 === 0); setMod(i, 6, i % 2 === 0); }
+        const centers = spec.align;
+        for (let i = 0; i < centers.length; i++) for (let j = 0; j < centers.length; j++) {
+          if ((i === 0 && j === 0) || (i === 0 && j === centers.length - 1) || (i === centers.length - 1 && j === 0)) continue;
+          const r0 = centers[i], c0 = centers[j];
+          for (let dr = -2; dr <= 2; dr++) for (let dc = -2; dc <= 2; dc++) setMod(r0 + dr, c0 + dc, Math.abs(dr) === 2 || Math.abs(dc) === 2 || (dr === 0 && dc === 0));
+        }
+        for (let i = 0; i < 9; i++) if (i !== 6) { isFunc[8][i] = 1; isFunc[i][8] = 1; }
+        for (let i = S - 8; i < S; i++) isFunc[8][i] = 1; for (let i = S - 7; i < S; i++) isFunc[i][8] = 1; setMod(S - 8, 8, 1);
+        if (ver >= 7) { const vBits = bchVersion(ver); for (let i = 0; i < 18; i++) { const bit = (vBits >> i) & 1, a = Math.floor(i / 3), b = i % 3; setMod(S - 11 + b, a, bit); setMod(a, S - 11 + b, bit); } }
+        let bitIdx = 0, up = true;
+        for (let col = S - 1; col >= 1; col -= 2) { if (col === 6) col--; for (let step = 0; step < S; step++) { const r = up ? S - 1 - step : step; for (let dc = 0; dc < 2; dc++) { const c = col - dc; if (!isFunc[r][c]) grid[r][c] = bitIdx < finalBits.length ? finalBits[bitIdx++] : 0; } } up = !up; }
+        const masks = [(r, c) => (r + c) % 2 === 0, (r, c) => r % 2 === 0, (r, c) => c % 3 === 0, (r, c) => (r + c) % 3 === 0, (r, c) => (Math.floor(r / 2) + Math.floor(c / 3)) % 2 === 0, (r, c) => ((r * c) % 2 + (r * c) % 3) === 0, (r, c) => (((r * c) % 2 + (r * c) % 3) % 2) === 0, (r, c) => (((r + c) % 2 + (r * c) % 3) % 2) === 0];
+        const applyFmt = (mg, maskId) => {
+          const fmt = bchFormat(0b00, maskId), c1 = [[8,0],[8,1],[8,2],[8,3],[8,4],[8,5],[8,7],[8,8],[7,8],[5,8],[4,8],[3,8],[2,8],[1,8],[0,8]], c2 = [[S-1,8],[S-2,8],[S-3,8],[S-4,8],[S-5,8],[S-6,8],[S-7,8],[8,S-8],[8,S-7],[8,S-6],[8,S-5],[8,S-4],[8,S-3],[8,S-2],[8,S-1]];
+          for (let i = 0; i < 15; i++) { const bit = (fmt >> (14 - i)) & 1; mg[c1[i][0]][c1[i][1]] = bit; mg[c2[i][0]][c2[i][1]] = bit; }
+        };
+        const calcPenalty = (mg) => {
+          let pen = 0, dark = 0;
+          for (let r = 0; r < S; r++) { let run = 1; for (let c = 1; c < S; c++) { if (mg[r][c] === mg[r][c - 1]) run++; else { if (run >= 5) pen += 3 + (run - 5); run = 1; } } if (run >= 5) pen += 3 + (run - 5); }
+          for (let c = 0; c < S; c++) { let run = 1; for (let r = 1; r < S; r++) { if (mg[r][c] === mg[r - 1][c]) run++; else { if (run >= 5) pen += 3 + (run - 5); run = 1; } } if (run >= 5) pen += 3 + (run - 5); }
+          for (let r = 0; r < S - 1; r++) for (let c = 0; c < S - 1; c++) { const v = mg[r][c]; if (v === mg[r][c + 1] && v === mg[r + 1][c] && v === mg[r + 1][c + 1]) pen += 3; }
+          for (let r = 0; r < S; r++) for (let c = 0; c < S; c++) if (mg[r][c]) dark++;
+          return pen + Math.floor(Math.abs((dark * 100) / (S * S) - 50) / 5) * 10;
+        };
+        let bestGrid = null, bestScore = Infinity;
+        for (let m = 0; m < 8; m++) { const mg = grid.map((row, r) => row.map((v, c) => (!isFunc[r][c] && masks[m](r, c)) ? (v ^ 1) : v)); applyFmt(mg, m); const sc = calcPenalty(mg); if (sc < bestScore) { bestScore = sc; bestGrid = mg; } }
+        return bestGrid;
+      }
+      function renderToCanvas(canvasEl, text, pxSize = 192) {
+        const matrix = buildMatrix(text); if (!matrix) return false;
+        const S = matrix.length, quiet = 3, total = S + quiet * 2, scale = Math.max(2, Math.floor(pxSize / total)), dim = total * scale;
+        canvasEl.width = dim; canvasEl.height = dim; const ctx = canvasEl.getContext('2d');
+        ctx.fillStyle = '#ffffff'; ctx.fillRect(0, 0, dim, dim); ctx.fillStyle = '#000000';
+        for (let r = 0; r < S; r++) for (let c = 0; c < S; c++) if (matrix[r][c]) ctx.fillRect((c + quiet) * scale, (r + quiet) * scale, scale, scale);
+        return true;
+      }
+      return { renderToCanvas };
+    })();
+
+    function initAboutQrCodes() {
+      document.querySelectorAll('#about-panel [data-qr]').forEach(card => {
+        const url = card.getAttribute('data-qr'); if (!url) return;
+        card.innerHTML = ''; const cv = document.createElement('canvas');
+        if (QRGen.renderToCanvas(cv, url, 192)) card.appendChild(cv);
+        const lblZh = card.getAttribute('data-qr-label-zh') || card.getAttribute('data-qr-label') || '';
+        const lblEn = card.getAttribute('data-qr-label-en') || lblZh;
+        if (lblZh || lblEn) { const span = document.createElement('span'); span.className = 'qr-label'; span.textContent = currentLang === 'en' ? lblEn : lblZh; card.appendChild(span); }
+      });
+    }
+
+    class TiledWebGLPanoramaEngine {
+      constructor(canvas, options = {}) {
+        this.canvas = canvas; this.yaw = options.initialYaw || 0; this.northOffset = options.northOffset || 0;
+        this.pitch = options.initialPitch || 0; this.fov = options.initialFov || 75;
+        this.autoRotate = options.autoRotate !== undefined ? options.autoRotate : true;
+        this.autoRotateSpeed = options.autoRotateSpeed || 0.08;
+        this.onViewChange = options.onViewChange || null; this.onZoomChange = options.onZoomChange || null;
+        this.vrMode = false; this.isDragging = false; this.lastX = 0; this.lastY = 0; this.velX = 0; this.velY = 0; this.pinchDist = 0;
+        this.activeKeys = new Set(); this.gyroEnabled = false; this.gyroBaseSet = false; this.gyroYawOffset = 0;
+        this.cols = 1; this.rows = 1; this.textures = [];
+        this.initWebGL(); this.bindEvents(); this.resize(); this.startLoop();
+      }
+      initWebGL() {
+        const gl = this.canvas.getContext('webgl', { antialias: true, preserveDrawingBuffer: false }) || this.canvas.getContext('experimental-webgl');
+        if (!gl) throw new Error('WebGL not supported');
+        this.gl = gl; this.tileMaxDim = Math.min(gl.getParameter(gl.MAX_TEXTURE_SIZE) || 4096, 2048);
+        const vsSource = `attribute vec2 a_pos;varying vec2 v_uv;void main(){v_uv=a_pos;gl_Position=vec4(a_pos,0.0,1.0);}`;
+        const fsSource = `precision highp float;varying vec2 v_uv;uniform sampler2D u_tiles[8];uniform int u_cols;uniform int u_rows;uniform float u_yaw;uniform float u_pitch;uniform float u_fov;uniform float u_aspect;const float PI=3.14159265359;vec4 sampleTile(int idx,vec2 uv){if(idx==0)return texture2D(u_tiles[0],uv);if(idx==1)return texture2D(u_tiles[1],uv);if(idx==2)return texture2D(u_tiles[2],uv);if(idx==3)return texture2D(u_tiles[3],uv);if(idx==4)return texture2D(u_tiles[4],uv);if(idx==5)return texture2D(u_tiles[5],uv);if(idx==6)return texture2D(u_tiles[6],uv);return texture2D(u_tiles[7],uv);}void main(){float s=tan(radians(u_fov*0.5));vec3 d=normalize(vec3(v_uv.x*u_aspect*s,v_uv.y*s,-1.0));float cp=cos(u_pitch),sp=sin(u_pitch);vec3 dp=vec3(d.x,d.y*cp-d.z*sp,d.y*sp+d.z*cp);float cy=cos(u_yaw),sy=sin(u_yaw);vec3 w=vec3(dp.x*cy-dp.z*sy,dp.y,dp.x*sy+dp.z*cy);float u=fract(atan(w.x,-w.z)/(2.0*PI)+0.5);float v=clamp(0.5-asin(clamp(w.y,-1.0,1.0))/PI,0.0,1.0);float fc=float(u_cols),fr=float(u_rows);float su=u*fc,sv=v*fr;int col=int(min(floor(su),fc-1.0));int row=int(min(floor(sv),fr-1.0));gl_FragColor=sampleTile(row*u_cols+col,vec2(su-float(col),sv-float(row)));}`;
+        const compile = (type, src) => { const s = gl.createShader(type); gl.shaderSource(s, src); gl.compileShader(s); return s; };
+        const prog = gl.createProgram(); gl.attachShader(prog, compile(gl.VERTEX_SHADER, vsSource)); gl.attachShader(prog, compile(gl.FRAGMENT_SHADER, fsSource));
+        gl.linkProgram(prog); gl.useProgram(prog); this.program = prog;
+        const buf = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, buf); gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1,-1,1,-1,-1,1,-1,1,1,-1,1,1]), gl.STATIC_DRAW);
+        const posLoc = gl.getAttribLocation(prog, 'a_pos'); gl.enableVertexAttribArray(posLoc); gl.vertexAttribPointer(posLoc, 2, gl.FLOAT, false, 0, 0);
+        this.uCols = gl.getUniformLocation(prog, 'u_cols'); this.uRows = gl.getUniformLocation(prog, 'u_rows');
+        this.uYaw = gl.getUniformLocation(prog, 'u_yaw'); this.uPitch = gl.getUniformLocation(prog, 'u_pitch');
+        this.uFov = gl.getUniformLocation(prog, 'u_fov'); this.uAspect = gl.getUniformLocation(prog, 'u_aspect');
+        const idxs = [];
+        for (let i = 0; i < 8; i++) {
+          const tex = gl.createTexture(); gl.activeTexture(gl.TEXTURE0 + i); gl.bindTexture(gl.TEXTURE_2D, tex);
+          gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+          gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+          gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array([10, 15, 28, 255]));
+          this.textures.push(tex); idxs.push(i);
+        }
+        gl.uniform1iv(gl.getUniformLocation(prog, 'u_tiles'), new Int32Array(idxs));
+      }
+      computeTileGrid(srcW, srcH) {
+        const cols = Math.min(4, Math.max(1, Math.ceil(srcW / this.tileMaxDim))), rows = Math.min(2, Math.max(1, Math.ceil(srcH / this.tileMaxDim)));
+        const tileW = Math.min(this.tileMaxDim, Math.ceil(srcW / cols)), tileH = Math.min(this.tileMaxDim, Math.ceil(srcH / rows));
+        return { cols, rows, tileW, tileH, effectiveW: tileW * cols, effectiveH: tileH * rows };
+      }
+      setTiledImageSource(imageElement) {
+        const gl = this.gl, srcW = imageElement.naturalWidth || imageElement.width, srcH = imageElement.naturalHeight || imageElement.height, grid = this.computeTileGrid(srcW, srcH);
+        this.cols = grid.cols; this.rows = grid.rows;
+        const tileCanvas = document.createElement('canvas'); tileCanvas.width = grid.tileW; tileCanvas.height = grid.tileH;
+        const ctx = tileCanvas.getContext('2d'); ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = 'high';
+        const sliceW = srcW / grid.cols, sliceH = srcH / grid.rows;
+        for (let r = 0; r < grid.rows; r++) for (let c = 0; c < grid.cols; c++) {
+          const idx = r * grid.cols + c; ctx.clearRect(0, 0, grid.tileW, grid.tileH);
+          ctx.drawImage(imageElement, c * sliceW, r * sliceH, sliceW, sliceH, 0, 0, grid.tileW, grid.tileH);
+          gl.activeTexture(gl.TEXTURE0 + idx); gl.bindTexture(gl.TEXTURE_2D, this.textures[idx]);
+          gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1); gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, tileCanvas);
+        }
+        tileCanvas.width = 0; tileCanvas.height = 0; return grid;
+      }
+      setVRMode(enabled) { this.vrMode = !!enabled; }
+      resize() {
+        const dpr = Math.min(window.devicePixelRatio || 1, 2), w = Math.floor(this.canvas.clientWidth * dpr), h = Math.floor(this.canvas.clientHeight * dpr);
+        if (this.canvas.width !== w || this.canvas.height !== h) { this.canvas.width = w; this.canvas.height = h; this.gl.viewport(0, 0, w, h); }
+      }
+      bindEvents() {
+        window.addEventListener('resize', () => this.resize());
+        this.canvas.addEventListener('mousedown', (e) => { this.isDragging = true; this.lastX = e.clientX; this.lastY = e.clientY; this.velX = 0; this.velY = 0; });
+        window.addEventListener('mousemove', (e) => {
+          if (!this.isDragging) return;
+          const dx = e.clientX - this.lastX, dy = e.clientY - this.lastY; this.lastX = e.clientX; this.lastY = e.clientY;
+          const factor = this.fov / 600; this.velX = -dx * factor; this.velY = dy * factor;
+          this.yaw += this.velX; if (this.gyroEnabled) this.gyroYawOffset += this.velX;
+          this.pitch = Math.max(-89, Math.min(89, this.pitch + this.velY));
+        });
+        window.addEventListener('mouseup', () => { this.isDragging = false; });
+        this.canvas.addEventListener('wheel', (e) => { e.preventDefault(); this.setFov(this.fov + e.deltaY * 0.04, true); }, { passive: false });
+        this.canvas.addEventListener('touchstart', (e) => {
+          if (e.touches.length === 1) { this.isDragging = true; this.lastX = e.touches[0].clientX; this.lastY = e.touches[0].clientY; this.velX = 0; this.velY = 0; }
+          else if (e.touches.length === 2) { this.isDragging = false; this.pinchDist = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY); }
+        }, { passive: true });
+        this.canvas.addEventListener('touchmove', (e) => {
+          if (e.touches.length === 1 && this.isDragging) {
+            const dx = e.touches[0].clientX - this.lastX, dy = e.touches[0].clientY - this.lastY; this.lastX = e.touches[0].clientX; this.lastY = e.touches[0].clientY;
+            const factor = this.fov / 450; this.velX = -dx * factor; this.velY = dy * factor;
+            this.yaw += this.velX; if (this.gyroEnabled) this.gyroYawOffset += this.velX;
+            this.pitch = Math.max(-89, Math.min(89, this.pitch + this.velY));
+          } else if (e.touches.length === 2) {
+            const dist = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY);
+            const delta = this.pinchDist - dist; this.pinchDist = dist; this.setFov(this.fov + delta * 0.15, true);
+          }
+        }, { passive: true });
+        this.canvas.addEventListener('touchend', () => { this.isDragging = false; });
+        window.addEventListener('deviceorientation', (e) => {
+          if (!this.gyroEnabled || e.alpha === null || e.beta === null || e.gamma === null) return;
+          const d2r = Math.PI / 180, a = e.alpha * d2r, b = e.beta * d2r, g = e.gamma * d2r;
+          const ca = Math.cos(a), sa = Math.sin(a), cb = Math.cos(b), sb = Math.sin(b), cg = Math.cos(g), sg = Math.sin(g);
+          const ex = -ca * sg - sa * cg * sb, ey = -sa * sg + ca * cg * sb, ez = -cg * cb;
+          const pitchDeg = Math.asin(Math.max(-1, Math.min(1, ez))) / d2r, horiz = Math.hypot(ex, ey), yawDeg = Math.atan2(ex, ey) / d2r;
+          if (!this.gyroBaseSet) { this.gyroYawOffset = this.yaw - yawDeg; this.gyroBaseSet = true; }
+          if (horiz > 0.08) this.yaw = yawDeg + this.gyroYawOffset;
+          this.pitch = Math.max(-85, Math.min(85, pitchDeg));
+        });
+      }
+      setFov(val, notifyZoom = false) { this.fov = Math.max(30, Math.min(110, val)); if (notifyZoom && this.onZoomChange) this.onZoomChange(this.fov); }
+      resetView(yaw = 0, pitch = 0, fov = 75, northOffset = this.northOffset) { this.northOffset = northOffset || 0; this.yaw = yaw; this.pitch = pitch; this.fov = fov; this.velX = 0; this.velY = 0; this.gyroBaseSet = false; }
+      async setGyroEnabled(enabled) {
+        if (enabled) {
+          if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
+            try { if (await DeviceOrientationEvent.requestPermission() !== 'granted') return false; } catch (err) { return false; }
+          }
+          this.gyroEnabled = true; this.gyroBaseSet = false; return true;
+        }
+        this.gyroEnabled = false; this.gyroBaseSet = false; return false;
+      }
+      async toggleGyro() { return this.setGyroEnabled(!this.gyroEnabled); }
+      startLoop() {
+        let lastTime = performance.now();
+        const render = (now) => {
+          const dt = Math.min((now - lastTime) / 16.6667, 3); lastTime = now;
+          let kc = false; const rotStep = 1.25 * (this.fov / 75) * dt;
+          if (this.activeKeys.has('KeyA')) { this.yaw -= rotStep; if (this.gyroEnabled) this.gyroYawOffset -= rotStep; kc = true; }
+          if (this.activeKeys.has('KeyD')) { this.yaw += rotStep; if (this.gyroEnabled) this.gyroYawOffset += rotStep; kc = true; }
+          if (this.activeKeys.has('KeyW')) { this.pitch = Math.min(89, this.pitch + rotStep); kc = true; }
+          if (this.activeKeys.has('KeyS')) { this.pitch = Math.max(-89, this.pitch - rotStep); kc = true; }
+          if (this.activeKeys.has('ArrowUp')) { this.setFov(this.fov - 0.9 * dt, true); kc = true; }
+          if (this.activeKeys.has('ArrowDown')) { this.setFov(this.fov + 0.9 * dt, true); kc = true; }
+          if (kc) { this.velX = 0; this.velY = 0; }
+          else if (!this.isDragging) {
+            if (Math.abs(this.velX) > 0.001 || Math.abs(this.velY) > 0.001) {
+              this.yaw += this.velX; if (this.gyroEnabled) this.gyroYawOffset += this.velX;
+              this.pitch = Math.max(-89, Math.min(89, this.pitch + this.velY)); this.velX *= 0.92; this.velY *= 0.92;
+            } else if (this.autoRotate && !this.gyroEnabled) this.yaw += this.autoRotateSpeed * dt;
+          }
+          const normYaw = ((this.yaw % 360) + 360) % 360, gl = this.gl, w = this.canvas.width, h = Math.max(1, this.canvas.height);
+          gl.uniform1i(this.uCols, this.cols); gl.uniform1i(this.uRows, this.rows);
+          gl.uniform1f(this.uYaw, ((this.yaw + this.northOffset) * Math.PI) / 180); gl.uniform1f(this.uPitch, (this.pitch * Math.PI) / 180); gl.uniform1f(this.uFov, this.fov);
+          if (this.vrMode) {
+            const hw = Math.floor(w * 0.5), rw = w - hw; gl.enable(gl.SCISSOR_TEST);
+            gl.viewport(0, 0, hw, h); gl.scissor(0, 0, hw, h); gl.uniform1f(this.uAspect, hw / h); gl.drawArrays(gl.TRIANGLES, 0, 6);
+            gl.viewport(hw, 0, rw, h); gl.scissor(hw, 0, rw, h); gl.uniform1f(this.uAspect, rw / h); gl.drawArrays(gl.TRIANGLES, 0, 6);
+            gl.disable(gl.SCISSOR_TEST);
+          } else { gl.viewport(0, 0, w, h); gl.uniform1f(this.uAspect, w / h); gl.drawArrays(gl.TRIANGLES, 0, 6); }
+          if (this.onViewChange) this.onViewChange(normYaw, this.pitch, this.fov);
+          requestAnimationFrame(render);
+        };
+        requestAnimationFrame(render);
+      }
+    }
+
+    function generateBuiltInPanorama(theme = 'sunset', lang = 'zh') {
+      const width = 4096, height = 2048, canvas = document.createElement('canvas');
+      canvas.width = width; canvas.height = height; const ctx = canvas.getContext('2d');
+      if (theme === 'aurora') {
+        const sky = ctx.createLinearGradient(0, 0, 0, height * 0.56);
+        sky.addColorStop(0.0, '#020617'); sky.addColorStop(0.25, '#061a2e'); sky.addColorStop(0.45, '#064e3b'); sky.addColorStop(0.55, '#0f172a');
+        ctx.fillStyle = sky; ctx.fillRect(0, 0, width, height * 0.56);
+        for (let band = 0; band < 3; band++) {
+          ctx.save(); ctx.beginPath();
+          for (let x = 0; x <= width; x += 16) { const t = (x / width) * Math.PI * 2, y = height * (0.22 + band * 0.05) + Math.sin(t * 2 + band) * 90 + Math.cos(t * 5) * 35; if (x === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y); }
+          ctx.lineWidth = 110 - band * 25; ctx.strokeStyle = band === 0 ? 'rgba(52,211,153,0.22)' : band === 1 ? 'rgba(56,189,248,0.18)' : 'rgba(168,85,247,0.15)';
+          ctx.filter = 'blur(18px)'; ctx.stroke(); ctx.restore();
+        }
+        ctx.fillStyle = '#ffffff';
+        for (let i = 0; i < 850; i++) { const sx = ((Math.sin(i * 19.19) * 43758.5453) % 1 + 1) % 1 * width, sy = ((Math.cos(i * 41.73) * 29471.13) % 1 + 1) % 1 * height * 0.44; ctx.globalAlpha = 0.35 + (i % 5) * 0.13; ctx.beginPath(); ctx.arc(sx, sy, (i % 4 === 0) ? 2.3 : 1.1, 0, Math.PI * 2); ctx.fill(); }
+        ctx.globalAlpha = 1;
+        const drawPeak = (baseY, amp, phase, color) => { ctx.fillStyle = color; ctx.beginPath(); ctx.moveTo(0, height); for (let x = 0; x <= width; x += 8) { const th = (x / width) * Math.PI * 2; ctx.lineTo(x, baseY - Math.abs(Math.sin(th * 4 + phase) * amp + Math.cos(th * 9 - phase) * (amp * 0.45))); } ctx.lineTo(width, height); ctx.closePath(); ctx.fill(); };
+        drawPeak(height * 0.52, 165, 0.8, '#1e293b'); drawPeak(height * 0.535, 110, 2.4, '#334155');
+        const snow = ctx.createLinearGradient(0, height * 0.5, 0, height); snow.addColorStop(0, '#cbd5e1'); snow.addColorStop(0.25, '#64748b'); snow.addColorStop(1, '#0f172a'); ctx.fillStyle = snow; ctx.fillRect(0, height * 0.5, width, height * 0.5);
+      } else {
+        const sky = ctx.createLinearGradient(0, 0, 0, height * 0.55);
+        sky.addColorStop(0.0, '#070b19'); sky.addColorStop(0.28, '#172554'); sky.addColorStop(0.42, '#6d28d9'); sky.addColorStop(0.48, '#ea580c'); sky.addColorStop(0.52, '#fde047');
+        ctx.fillStyle = sky; ctx.fillRect(0, 0, width, height * 0.55);
+        const sunX = width * 0.5, sunY = height * 0.485, glow = ctx.createRadialGradient(sunX, sunY, 10, sunX, sunY, 520);
+        glow.addColorStop(0, 'rgba(255,252,220,1)'); glow.addColorStop(0.18, 'rgba(253,186,116,0.85)'); glow.addColorStop(0.5, 'rgba(234,88,12,0.25)'); glow.addColorStop(1, 'rgba(234,88,12,0)');
+        ctx.fillStyle = glow; ctx.fillRect(0, 0, width, height * 0.65); ctx.fillStyle = '#ffffff';
+        for (let i = 0; i < 650; i++) { const sx = ((Math.sin(i * 12.9898) * 43758.5453) % 1 + 1) % 1 * width, sy = ((Math.cos(i * 78.233) * 29471.13) % 1 + 1) % 1 * height * 0.36; ctx.globalAlpha = 0.35 + (i % 5) * 0.13; ctx.beginPath(); ctx.arc(sx, sy, (i % 3 === 0) ? 2.2 : 1.1, 0, Math.PI * 2); ctx.fill(); }
+        ctx.globalAlpha = 1;
+        const drawMt = (baseY, a1, a2, phase, color) => { ctx.fillStyle = color; ctx.beginPath(); ctx.moveTo(0, height); for (let x = 0; x <= width; x += 8) { const th = (x / width) * Math.PI * 2; ctx.lineTo(x, baseY - Math.abs(Math.sin(th * 3 + phase) * a1 + Math.cos(th * 7 - phase * 1.5) * a2 + Math.sin(th * 15 + phase) * (a2 * 0.35))); } ctx.lineTo(width, height); ctx.closePath(); ctx.fill(); };
+        drawMt(height * 0.52, 130, 55, 0.4, '#1e1b4b'); drawMt(height * 0.535, 95, 42, 2.1, '#0f172a');
+        const gnd = ctx.createLinearGradient(0, height * 0.5, 0, height); gnd.addColorStop(0, '#0f172a'); gnd.addColorStop(0.25, '#090d16'); gnd.addColorStop(1, '#030712'); ctx.fillStyle = gnd; ctx.fillRect(0, height * 0.5, width, height * 0.5);
+      }
+      ctx.strokeStyle = 'rgba(56, 189, 248, 0.15)'; ctx.lineWidth = 2;
+      for (let lon = 0; lon < 24; lon++) { const x = (lon / 24) * width; ctx.beginPath(); ctx.moveTo(x, height * 0.5); ctx.lineTo(x, height); ctx.stroke(); }
+      const dirs = lang === 'en'
+        ? [{ label: 'N · North (0°)', pos: 0.5 }, { label: 'E · East (90°)', pos: 0.75 }, { label: 'S · South (180°)', pos: 0.0 }, { label: 'W · West (270°)', pos: 0.25 }]
+        : [{ label: 'N · 正北 (0°)', pos: 0.5 }, { label: 'E · 正东 (90°)', pos: 0.75 }, { label: 'S · 正南 (180°)', pos: 0.0 }, { label: 'W · 正西 (270°)', pos: 0.25 }];
+      ctx.font = 'bold 34px sans-serif'; ctx.textAlign = 'center';
+      dirs.forEach(d => { const x = d.pos * width; ctx.fillStyle = 'rgba(56, 189, 248, 0.78)'; ctx.fillText(d.label, x, height * 0.565); if (d.pos === 0) ctx.fillText(d.label, width, height * 0.565); });
+      return canvas;
+    }
+
+    function createThumbnailDataUrl(sourceEl, thumbW = 280, thumbH = 140) {
+      const c = document.createElement('canvas'); c.width = thumbW; c.height = thumbH; c.getContext('2d').drawImage(sourceEl, 0, 0, thumbW, thumbH);
+      const url = c.toDataURL('image/jpeg', 0.78); c.width = 0; c.height = 0; return url;
+    }
+
+    const DEFAULT_THEME = { accentColor: '#38bdf8', panelColor: '#0d1424', opacity: 0.76, blur: 18 };
+    const THEME_PRESETS = [
+      { name: '星空蓝', accentColor: '#38bdf8', panelColor: '#0d1424' }, { name: '极光翠', accentColor: '#34d399', panelColor: '#071c19' },
+      { name: '幻夜紫', accentColor: '#a78bfa', panelColor: '#171029' }, { name: '琥珀金', accentColor: '#fbbf24', panelColor: '#1f160a' },
+      { name: '玫瑰粉', accentColor: '#fb7185', panelColor: '#240c16' }, { name: '极简黑', accentColor: '#e2e8f0', panelColor: '#0b0c10' }
+    ];
+    function updateRangeFill(slider) {
+      if (!slider) return; const min = Number(slider.min || 0), max = Number(slider.max || 100), val = Number(slider.value || 0);
+      slider.style.setProperty('--range-pct', `${(max > min ? ((val - min) / (max - min)) * 100 : 0).toFixed(2)}%`);
+    }
+    function hexToRgb(hex) {
+      const clean = (hex || '').replace('#', ''), full = clean.length === 3 ? clean.split('').map(c => c + c).join('') : clean.padEnd(6, '0').slice(0, 6), num = parseInt(full, 16);
+      return { r: (num >> 16) & 255, g: (num >> 8) & 255, b: num & 255 };
+    }
+    function computeDeepAccentHex(hex) {
+      const { r, g, b } = hexToRgb(hex);
+      return '#' + [Math.round(r * 0.55 + 32), Math.round(g * 0.45 + 24), Math.round(Math.min(255, b * 0.75 + 65))].map(v => Math.max(0, Math.min(255, v)).toString(16).padStart(2, '0')).join('');
+    }
+    let currentTheme = { ...DEFAULT_THEME };
+    try { const saved = localStorage.getItem('pano360_theme_v1'); if (saved) currentTheme = { ...DEFAULT_THEME, ...JSON.parse(saved) }; } catch (e) {}
+
+    const themeAccentInput = document.getElementById('theme-accent-input'), themePanelInput = document.getElementById('theme-panel-input');
+    const themeOpacitySlider = document.getElementById('theme-opacity-slider'), themeOpacityVal = document.getElementById('theme-opacity-val');
+    const themeBlurSlider = document.getElementById('theme-blur-slider'), themeBlurVal = document.getElementById('theme-blur-val'), themeSwatches = document.getElementById('theme-swatches');
+
+    function applyTheme(themeObj, save = true) {
+      currentTheme = {
+        accentColor: themeObj.accentColor || DEFAULT_THEME.accentColor, panelColor: themeObj.panelColor || DEFAULT_THEME.panelColor,
+        opacity: Math.max(0.15, Math.min(0.95, Number(themeObj.opacity ?? DEFAULT_THEME.opacity))), blur: Math.max(0, Math.min(36, Number(themeObj.blur ?? DEFAULT_THEME.blur)))
+      };
+      const ac = hexToRgb(currentTheme.accentColor), pc = hexToRgb(currentTheme.panelColor), deepHex = computeDeepAccentHex(currentTheme.accentColor), hoverAlpha = Math.min(0.96, currentTheme.opacity + 0.14).toFixed(2);
+      const root = document.documentElement.style;
+      root.setProperty('--accent', currentTheme.accentColor); root.setProperty('--accent-rgb', `${ac.r}, ${ac.g}, ${ac.b}`);
+      root.setProperty('--accent-deep', deepHex); root.setProperty('--panel-rgb', `${pc.r}, ${pc.g}, ${pc.b}`);
+      root.setProperty('--panel-alpha', String(currentTheme.opacity)); root.setProperty('--panel-blur', `${currentTheme.blur}px`);
+      root.setProperty('--panel-hover', `rgba(${pc.r}, ${pc.g}, ${pc.b}, ${hoverAlpha})`);
+      themeAccentInput.value = currentTheme.accentColor; themePanelInput.value = currentTheme.panelColor;
+      const opPct = Math.round(currentTheme.opacity * 100);
+      themeOpacitySlider.value = opPct; themeOpacityVal.textContent = `${opPct}%`; updateRangeFill(themeOpacitySlider);
+      themeBlurSlider.value = currentTheme.blur; themeBlurVal.textContent = `${currentTheme.blur}px`; updateRangeFill(themeBlurSlider);
+      document.querySelectorAll('.swatch-btn').forEach(btn => btn.classList.toggle('active', btn.dataset.accent === currentTheme.accentColor && btn.dataset.panel === currentTheme.panelColor));
+      if (save) try { localStorage.setItem('pano360_theme_v1', JSON.stringify(currentTheme)); } catch (e) {}
+    }
+
+    (function initThemeControls() {
+      THEME_PRESETS.forEach(p => {
+        const btn = document.createElement('button'); btn.className = 'swatch-btn'; btn.title = p.name; btn.dataset.accent = p.accentColor; btn.dataset.panel = p.panelColor;
+        btn.style.background = `linear-gradient(135deg, ${p.accentColor} 55%, ${p.panelColor} 55%)`;
+        btn.addEventListener('click', () => applyTheme({ ...currentTheme, accentColor: p.accentColor, panelColor: p.panelColor }));
+        themeSwatches.appendChild(btn);
+      });
+      themeAccentInput.addEventListener('input', (e) => applyTheme({ ...currentTheme, accentColor: e.target.value }));
+      themePanelInput.addEventListener('input', (e) => applyTheme({ ...currentTheme, panelColor: e.target.value }));
+      themeOpacitySlider.addEventListener('input', (e) => applyTheme({ ...currentTheme, opacity: Number(e.target.value) / 100 }));
+      themeBlurSlider.addEventListener('input', (e) => applyTheme({ ...currentTheme, blur: Number(e.target.value) }));
+      document.getElementById('btn-reset-theme').addEventListener('click', () => applyTheme({ ...DEFAULT_THEME }));
+      applyTheme(currentTheme, false);
+    })();
+
+    const appState = { scenes: [], activeIndex: 0, dockPinned: false, dockCollapsed: false, dockHideTimer: null, dragSrcIndex: null, editingIndex: -1, isManualPureMode: false, vrMode: false, vrPrevGyroState: false, idleTimer: null, zoomHideTimer: null };
+    const canvas = document.getElementById('gl-canvas'), angleReadout = document.getElementById('angle-readout');
+    const zoomHud = document.getElementById('zoom-hud'), zoomLabel = document.getElementById('zoom-label'), zoomTrack = document.getElementById('zoom-track'), zoomFill = document.getElementById('zoom-fill'), zoomThumb = document.getElementById('zoom-thumb');
+
+    function showZoomFeedback(fov) {
+      const pct = Math.max(0, Math.min(100, ((110 - fov) / 80) * 100));
+      zoomLabel.textContent = `${Math.round(fov)}° · ${(75 / fov).toFixed(1)}×`; zoomFill.style.width = `${pct}%`; zoomThumb.style.left = `${pct}%`;
+      zoomHud.classList.add('visible'); clearTimeout(appState.zoomHideTimer);
+      appState.zoomHideTimer = setTimeout(() => zoomHud.classList.remove('visible'), 1400);
+    }
+    let isDraggingZoomBar = false;
+    function applyZoomBarPointer(clientX) { const rect = zoomTrack.getBoundingClientRect(); viewer.setFov(110 - Math.max(0, Math.min(1, (clientX - rect.left) / Math.max(1, rect.width))) * 80, true); }
+    zoomTrack.addEventListener('mousedown', (e) => { e.stopPropagation(); isDraggingZoomBar = true; applyZoomBarPointer(e.clientX); });
+    window.addEventListener('mousemove', (e) => { if (isDraggingZoomBar) applyZoomBarPointer(e.clientX); });
+    window.addEventListener('mouseup', () => { isDraggingZoomBar = false; });
+    zoomTrack.addEventListener('touchstart', (e) => { e.stopPropagation(); isDraggingZoomBar = true; if (e.touches[0]) applyZoomBarPointer(e.touches[0].clientX); }, { passive: true });
+    zoomTrack.addEventListener('touchmove', (e) => { e.stopPropagation(); if (isDraggingZoomBar && e.touches[0]) applyZoomBarPointer(e.touches[0].clientX); }, { passive: true });
+    zoomTrack.addEventListener('touchend', () => { isDraggingZoomBar = false; });
+
+    const viewer = new TiledWebGLPanoramaEngine(canvas, {
+      initialYaw: 0, initialPitch: 2, initialFov: 75, autoRotate: true,
+      onViewChange: (yaw, pitch, fov) => { angleReadout.textContent = t('compassFmt')(Math.round(yaw), Math.round(pitch), Math.round(fov)); },
+      onZoomChange: (fov) => showZoomFeedback(fov)
+    });
+
+    let toastTimer = null;
+    function showToast(msg, duration = 3200) { const box = document.getElementById('toast-box'); document.getElementById('toast-msg').textContent = msg; box.classList.add('show'); clearTimeout(toastTimer); toastTimer = setTimeout(() => box.classList.remove('show'), duration); }
+    function formatBytes(bytes) { if (bytes < 1024) return bytes + ' B'; if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB'; return (bytes / (1024 * 1024)).toFixed(2) + ' MB'; }
+
+    function updateSceneHeaderLabels() {
+      const scene = appState.scenes[appState.activeIndex]; if (!scene) return;
+      if (scene.isBuiltIn) { scene.name = scene.builtInTheme === 'sunset' ? t('builtInSunset') : t('builtInAurora'); scene.desc = scene.builtInTheme === 'sunset' ? t('builtInSunsetDesc') : t('builtInAuroraDesc'); }
+      document.getElementById('current-scene-title').textContent = scene.name; document.getElementById('badge-res').textContent = `${scene.width} × ${scene.height}`;
+      if (scene.grid) document.getElementById('badge-tile').textContent = t('tileBadgeFmt')(scene.grid.cols, scene.grid.rows, scene.grid.tileW);
+      document.getElementById('image-meta').textContent = scene.desc || t('metaHint');
+    }
+
+    function refreshBuiltInPanoramasForLang() {
+      let activeUpdated = false;
+      appState.scenes.forEach((scene, idx) => {
+        if (!scene.isBuiltIn) return;
+        const newCanvas = generateBuiltInPanorama(scene.builtInTheme, currentLang);
+        scene.sourceEl = newCanvas; scene.thumbUrl = createThumbnailDataUrl(newCanvas);
+        scene.name = scene.builtInTheme === 'sunset' ? t('builtInSunset') : t('builtInAurora');
+        scene.desc = scene.builtInTheme === 'sunset' ? t('builtInSunsetDesc') : t('builtInAuroraDesc');
+        if (idx === appState.activeIndex) { scene.grid = viewer.setTiledImageSource(newCanvas); activeUpdated = true; }
+      });
+      if (activeUpdated) updateSceneHeaderLabels();
+    }
+
+    function activateScene(index, preserveCurrentView = false) {
+      if (index < 0 || index >= appState.scenes.length) return;
+      appState.activeIndex = index; const scene = appState.scenes[index];
+      const grid = viewer.setTiledImageSource(scene.sourceEl); scene.grid = grid;
+      if (!preserveCurrentView) viewer.resetView(scene.yaw || 0, scene.pitch || 0, scene.fov || 75, scene.northOffset || 0);
+      else viewer.northOffset = scene.northOffset || 0;
+      updateSceneHeaderLabels(); renderSceneDock();
+    }
+
+    function renderSceneDock() {
+      const listEl = document.getElementById('scene-list'), countTitle = document.getElementById('dock-count-title'), pillLabel = document.getElementById('pill-label');
+      const total = appState.scenes.length, activeScene = appState.scenes[appState.activeIndex];
+      countTitle.textContent = t('dockCountFmt')(total); pillLabel.textContent = t('dockPillFmt')(total, activeScene ? activeScene.name : '');
+      listEl.innerHTML = '';
+      appState.scenes.forEach((scene, idx) => {
+        const card = document.createElement('div'); card.className = 'scene-card' + (idx === appState.activeIndex ? ' active' : ''); card.draggable = true; card.dataset.index = idx;
+        const gridText = scene.grid ? t('tileCountFmt')(scene.grid.cols, scene.grid.rows) : '';
+        card.innerHTML = `<div class="scene-thumb-box"><img class="scene-thumb-img" src="${scene.thumbUrl}" alt="${scene.name}" /><span class="scene-index-tag">#${idx + 1}</span><span class="scene-tile-tag">${gridText}</span><div class="scene-card-actions"><button class="scene-action-icon edit-btn" title="${t('editTitle')}"><svg width="11" height="11" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" /></svg></button>${total > 1 ? `<button class="scene-action-icon del del-btn" title="Remove"><svg width="11" height="11" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" /></svg></button>` : ''}</div></div><div class="scene-footer"><span class="scene-name" title="${scene.name}">${scene.name}</span><span class="scene-res">${Math.round(scene.width / 1000)}K</span></div>`;
+        card.addEventListener('click', (e) => { if (!e.target.closest('.scene-action-icon')) activateScene(idx); });
+        const editBtn = card.querySelector('.edit-btn'); if (editBtn) editBtn.addEventListener('click', (e) => { e.stopPropagation(); openEditSceneModal(idx); });
+        const delBtn = card.querySelector('.del-btn'); if (delBtn) delBtn.addEventListener('click', (e) => { e.stopPropagation(); removeScene(idx); });
+        card.addEventListener('dragstart', (e) => { appState.dragSrcIndex = idx; card.classList.add('dragging'); e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', String(idx)); });
+        card.addEventListener('dragend', () => { card.classList.remove('dragging'); document.querySelectorAll('.scene-card').forEach(c => c.classList.remove('drag-over')); appState.dragSrcIndex = null; });
+        card.addEventListener('dragover', (e) => { e.preventDefault(); if (appState.dragSrcIndex !== null && appState.dragSrcIndex !== idx) card.classList.add('drag-over'); });
+        card.addEventListener('dragleave', () => card.classList.remove('drag-over'));
+        card.addEventListener('drop', (e) => {
+          e.preventDefault(); e.stopPropagation(); card.classList.remove('drag-over');
+          const fromIdx = appState.dragSrcIndex; if (fromIdx === null || fromIdx === idx) return;
+          const activeObj = appState.scenes[appState.activeIndex], [moved] = appState.scenes.splice(fromIdx, 1);
+          appState.scenes.splice(idx, 0, moved); appState.activeIndex = appState.scenes.indexOf(activeObj);
+          renderSceneDock(); showToast(t('toastReorder')(moved.name, idx + 1));
+        });
+        listEl.appendChild(card);
+      });
+      const addCard = document.createElement('div'); addCard.className = 'scene-add-card'; addCard.title = t('btnAddPano');
+      addCard.innerHTML = `<svg width="20" height="20" fill="none" style="color: var(--accent);" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4" /></svg><span style="font-size:11px; font-weight:600;">${t('dockAddCard')}</span>`;
+      addCard.addEventListener('click', () => document.getElementById('file-input').click());
+      listEl.appendChild(addCard);
+    }
+
+    function removeScene(idx) {
+      if (appState.scenes.length <= 1) { showToast(t('toastKeepOne')); return; }
+      const removed = appState.scenes.splice(idx, 1)[0];
+      if (removed && removed.objectUrl) URL.revokeObjectURL(removed.objectUrl);
+      if (appState.activeIndex >= appState.scenes.length) appState.activeIndex = appState.scenes.length - 1;
+      activateScene(appState.activeIndex); showToast(t('toastRemoved')(removed.name));
+    }
+
+    async function handleBatchFiles(fileList) {
+      const files = Array.from(fileList).filter(f => f && f.type.startsWith('image/'));
+      if (files.length === 0) { showToast(t('toastInvalidImg')); return; }
+      expandDock(); showToast(t('toastParsing')(files.length));
+      const hadOnlyBuiltIn = appState.scenes.every(s => s.isBuiltIn); let firstNewIndex = -1;
+      for (let i = 0; i < files.length; i++) {
+        const file = files[i];
+        try {
+          const objectUrl = URL.createObjectURL(file);
+          const img = await new Promise((resolve, reject) => { const image = new Image(); image.onload = () => resolve(image); image.onerror = reject; image.src = objectUrl; });
+          const w = img.naturalWidth, h = img.naturalHeight, grid = viewer.computeTileGrid(w, h), thumbUrl = createThumbnailDataUrl(img);
+          if (i === 0 && hadOnlyBuiltIn) appState.scenes = [];
+          appState.scenes.push({ id: 'scene_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7), name: file.name.replace(/\.[^/.]+$/, ''), desc: `${file.name} · ${w}×${h} · ${grid.cols}×${grid.rows}`, width: w, height: h, grid, sourceEl: img, objectUrl, thumbUrl, yaw: 0, northOffset: 0, pitch: 0, fov: 75, isBuiltIn: false });
+          if (firstNewIndex === -1) firstNewIndex = appState.scenes.length - 1;
+        } catch (err) { showToast(t('toastDecodeFail')(file.name)); }
+      }
+      if (firstNewIndex !== -1) { activateScene(firstNewIndex); const s = appState.scenes[firstNewIndex]; showToast(t('toastImported')(files.length, s.grid.cols, s.grid.rows), 4200); }
+    }
+
+    const topBar = document.getElementById('top-bar'), compassPill = document.getElementById('compass-pill');
+    const themePanel = document.getElementById('theme-panel'), shortcutPanel = document.getElementById('shortcut-panel'), aboutPanel = document.getElementById('about-panel');
+    function syncTopOverlaysPosition() {
+      const rect = topBar.getBoundingClientRect(), compassTop = Math.max(66, Math.round(rect.bottom + 2));
+      compassPill.style.top = compassTop + 'px';
+      const panelTop = (compassTop + (window.innerWidth <= 720 ? 6 : 36)) + 'px';
+      themePanel.style.top = panelTop; shortcutPanel.style.top = panelTop; aboutPanel.style.top = panelTop;
+    }
+    if (typeof ResizeObserver !== 'undefined') new ResizeObserver(syncTopOverlaysPosition).observe(topBar);
+    window.addEventListener('resize', syncTopOverlaysPosition);
+
+    const dockWrapper = document.getElementById('scene-dock-wrapper'), dockPill = document.getElementById('dock-pill'), btnPinDock = document.getElementById('btn-pin-dock'), pinLabel = document.getElementById('pin-label');
+    function scheduleDockAutoHide() { clearTimeout(appState.dockHideTimer); if (!appState.dockPinned && appState.dragSrcIndex === null) appState.dockHideTimer = setTimeout(() => collapseDock(), 1500); }
+    function expandDock() { appState.dockCollapsed = false; dockWrapper.classList.remove('collapsed'); scheduleDockAutoHide(); }
+    function collapseDock() { if (!appState.dockPinned) { appState.dockCollapsed = true; dockWrapper.classList.add('collapsed'); } }
+    dockPill.addEventListener('click', expandDock); dockPill.addEventListener('mouseenter', expandDock);
+    dockWrapper.addEventListener('mouseenter', () => { clearTimeout(appState.dockHideTimer); if (appState.dockCollapsed) expandDock(); });
+    dockWrapper.addEventListener('mouseleave', scheduleDockAutoHide);
+    dockWrapper.addEventListener('touchstart', () => { clearTimeout(appState.dockHideTimer); if (appState.dockCollapsed) expandDock(); }, { passive: true });
+    window.addEventListener('mousemove', (e) => { if (!appState.isManualPureMode && !appState.vrMode && appState.dockCollapsed && e.clientX < 260 && e.clientY > window.innerHeight - 130) expandDock(); });
+    btnPinDock.addEventListener('click', () => { appState.dockPinned = !appState.dockPinned; btnPinDock.classList.toggle('pinned', appState.dockPinned); pinLabel.textContent = appState.dockPinned ? t('dockPinned') : t('dockAutoHide'); if (appState.dockPinned) clearTimeout(appState.dockHideTimer); else scheduleDockAutoHide(); });
+    document.getElementById('btn-collapse-dock').addEventListener('click', () => { appState.dockPinned = false; btnPinDock.classList.remove('pinned'); pinLabel.textContent = t('dockAutoHide'); appState.dockCollapsed = true; dockWrapper.classList.add('collapsed'); });
+
+    const autoHideElements = document.querySelectorAll('.ui-auto-hide');
+    const isAnyModalOpen = () => document.querySelector('.modal-backdrop.open') !== null;
+    const setIdleHidden = (hidden) => autoHideElements.forEach(el => el.classList.toggle('idle-hidden', hidden));
+    function wakeUpUIAndResetIdleTimer() {
+      setIdleHidden(false); clearTimeout(appState.idleTimer);
+      appState.idleTimer = setTimeout(() => {
+        if (isAnyModalOpen() || viewer.isDragging || viewer.activeKeys.size > 0 || isDraggingZoomBar || themePanel.matches(':hover') || aboutPanel.matches(':hover') || shortcutPanel.matches(':hover')) { wakeUpUIAndResetIdleTimer(); return; }
+        setIdleHidden(true);
+      }, 3000);
+    }
+    ['mousemove', 'mousedown', 'wheel', 'touchstart', 'touchmove', 'keydown', 'input'].forEach(evt => window.addEventListener(evt, wakeUpUIAndResetIdleTimer, { passive: true }));
+    wakeUpUIAndResetIdleTimer();
+
+    (function initBuiltInScenes() {
+      const sunsetCanvas = generateBuiltInPanorama('sunset', currentLang), auroraCanvas = generateBuiltInPanorama('aurora', currentLang);
+      appState.scenes = [
+        { id: 'builtin_sunset', builtInTheme: 'sunset', name: t('builtInSunset'), desc: t('builtInSunsetDesc'), width: 4096, height: 2048, grid: viewer.computeTileGrid(4096, 2048), sourceEl: sunsetCanvas, thumbUrl: createThumbnailDataUrl(sunsetCanvas), yaw: 0, northOffset: 0, pitch: 2, fov: 75, isBuiltIn: true },
+        { id: 'builtin_aurora', builtInTheme: 'aurora', name: t('builtInAurora'), desc: t('builtInAuroraDesc'), width: 4096, height: 2048, grid: viewer.computeTileGrid(4096, 2048), sourceEl: auroraCanvas, thumbUrl: createThumbnailDataUrl(auroraCanvas), yaw: 15, northOffset: 0, pitch: 6, fov: 75, isBuiltIn: true }
+      ];
+      activateScene(0); scheduleDockAutoHide();
+    })();
+
+    const editModal = document.getElementById('edit-scene-modal'), btnRecordView = document.getElementById('btn-record-default-view'), btnSetNorth = document.getElementById('btn-set-north'), editViewStatus = document.getElementById('edit-view-status'), editNorthStatus = document.getElementById('edit-north-status');
+    let editDraft = { recordedView: false, rawYaw: 0, pitch: 0, fov: 75, calibratedNorth: false, northOffset: 0 };
+
+    function refreshEditDraftLabels(scene) {
+      const effNorth = editDraft.calibratedNorth ? editDraft.northOffset : (scene.northOffset || 0);
+      if (editDraft.recordedView) {
+        const relYaw = Math.round(((editDraft.rawYaw - effNorth) % 360 + 360) % 360);
+        editViewStatus.textContent = t('editViewNewFmt')(relYaw, Math.round(editDraft.pitch), Math.round(editDraft.fov));
+        editViewStatus.classList.add('highlight'); btnRecordView.classList.add('recorded'); document.getElementById('lbl-edit-btn-view').textContent = t('editBtnViewRecorded');
+      } else {
+        const curYaw = Math.round((((scene.yaw || 0) + (scene.northOffset || 0) - effNorth) % 360 + 360) % 360);
+        editViewStatus.textContent = t('editViewCurrentFmt')(curYaw, Math.round(scene.pitch || 0), Math.round(scene.fov || 75));
+        editViewStatus.classList.remove('highlight'); btnRecordView.classList.remove('recorded'); document.getElementById('lbl-edit-btn-view').textContent = t('editBtnView');
+      }
+      if (editDraft.calibratedNorth) {
+        editNorthStatus.textContent = t('editNorthNewFmt')(editDraft.northOffset); editNorthStatus.classList.add('highlight'); btnSetNorth.classList.add('recorded'); document.getElementById('lbl-edit-btn-north').textContent = t('editBtnNorthRecorded');
+      } else {
+        editNorthStatus.textContent = t('editNorthCurrentFmt')(scene.northOffset || 0); editNorthStatus.classList.remove('highlight'); btnSetNorth.classList.remove('recorded'); document.getElementById('lbl-edit-btn-north').textContent = t('editBtnNorth');
+      }
+    }
+
+    function openEditSceneModal(idx) {
+      if (idx !== appState.activeIndex) activateScene(idx);
+      appState.editingIndex = idx; const scene = appState.scenes[idx];
+      document.getElementById('edit-scene-name').value = scene.name; document.getElementById('edit-scene-desc').value = scene.desc || '';
+      editDraft = { recordedView: false, rawYaw: (scene.northOffset || 0) + viewer.yaw, pitch: viewer.pitch, fov: viewer.fov, calibratedNorth: false, northOffset: scene.northOffset || 0 };
+      refreshEditDraftLabels(scene); editModal.classList.add('open');
+    }
+
+    btnRecordView.addEventListener('click', () => { const s = appState.scenes[appState.editingIndex]; if (!s) return; editDraft.recordedView = true; editDraft.rawYaw = (s.northOffset || 0) + viewer.yaw; editDraft.pitch = viewer.pitch; editDraft.fov = viewer.fov; refreshEditDraftLabels(s); });
+    btnSetNorth.addEventListener('click', () => { const s = appState.scenes[appState.editingIndex]; if (!s) return; editDraft.calibratedNorth = true; editDraft.northOffset = (((s.northOffset || 0) + viewer.yaw) % 360 + 360) % 360; refreshEditDraftLabels(s); });
+    document.getElementById('btn-close-edit').addEventListener('click', () => editModal.classList.remove('open'));
+    document.getElementById('btn-cancel-edit').addEventListener('click', () => editModal.classList.remove('open'));
+    document.getElementById('btn-save-edit').addEventListener('click', () => {
+      const idx = appState.editingIndex; if (idx < 0 || idx >= appState.scenes.length) return;
+      const scene = appState.scenes[idx], newName = document.getElementById('edit-scene-name').value.trim(), newDesc = document.getElementById('edit-scene-desc').value.trim();
+      if (newName !== scene.name || newDesc !== (scene.desc || '')) scene.isBuiltIn = false;
+      scene.name = newName || scene.name; scene.desc = newDesc;
+      const oldNorth = scene.northOffset || 0, newNorth = editDraft.calibratedNorth ? editDraft.northOffset : oldNorth, currentRawYaw = oldNorth + viewer.yaw;
+      if (editDraft.recordedView) { scene.yaw = ((editDraft.rawYaw - newNorth) % 360 + 360) % 360; scene.pitch = editDraft.pitch; scene.fov = editDraft.fov; }
+      else if (editDraft.calibratedNorth) { scene.yaw = (((scene.yaw || 0) + oldNorth - newNorth) % 360 + 360) % 360; }
+      scene.northOffset = newNorth;
+      if (idx === appState.activeIndex) { viewer.northOffset = newNorth; if (editDraft.calibratedNorth) { viewer.yaw = ((currentRawYaw - newNorth) % 360 + 360) % 360; viewer.gyroBaseSet = false; } }
+      editModal.classList.remove('open'); updateSceneHeaderLabels(); renderSceneDock(); showToast(t('toastSceneSaved'));
+    });
+
+    const fileInput = document.getElementById('file-input');
+    document.getElementById('btn-open').addEventListener('click', () => fileInput.click());
+    fileInput.addEventListener('change', (e) => { if (e.target.files && e.target.files.length > 0) { handleBatchFiles(e.target.files); fileInput.value = ''; } });
+    const dropOverlay = document.getElementById('drop-overlay'); let dragCounter = 0;
+    window.addEventListener('dragenter', (e) => { if (appState.dragSrcIndex === null) { e.preventDefault(); dragCounter++; dropOverlay.classList.add('active'); } });
+    window.addEventListener('dragleave', (e) => { if (appState.dragSrcIndex === null) { e.preventDefault(); dragCounter--; if (dragCounter <= 0) { dragCounter = 0; dropOverlay.classList.remove('active'); } } });
+    window.addEventListener('dragover', (e) => { if (appState.dragSrcIndex === null) e.preventDefault(); });
+    window.addEventListener('drop', (e) => { if (appState.dragSrcIndex === null) { e.preventDefault(); dragCounter = 0; dropOverlay.classList.remove('active'); if (e.dataTransfer.files && e.dataTransfer.files.length > 0) handleBatchFiles(e.dataTransfer.files); } });
+
+    const btnAutoRotate = document.getElementById('btn-autorotate'), iconRotate = document.getElementById('icon-rotate');
+    function toggleAutoRotate() { viewer.autoRotate = !viewer.autoRotate; btnAutoRotate.classList.toggle('active', viewer.autoRotate); iconRotate.classList.toggle('spin-slow', viewer.autoRotate); }
+    btnAutoRotate.addEventListener('click', toggleAutoRotate);
+    const btnGyro = document.getElementById('btn-gyro');
+    btnGyro.addEventListener('click', async () => { const active = await viewer.toggleGyro(); btnGyro.classList.toggle('gyro-active', active); });
+    document.getElementById('btn-reset').addEventListener('click', () => { const s = appState.scenes[appState.activeIndex]; viewer.resetView(s ? s.yaw : 0, s ? s.pitch : 0, s ? s.fov : 75, s ? (s.northOffset || 0) : 0); });
+
+    const btnShortcuts = document.getElementById('btn-shortcuts'), btnTheme = document.getElementById('btn-theme'), btnAbout = document.getElementById('btn-about');
+    const popoverPairs = [{ panel: themePanel, btn: btnTheme }, { panel: shortcutPanel, btn: btnShortcuts }, { panel: aboutPanel, btn: btnAbout }];
+    function togglePopover(targetPanel, forceState) {
+      const next = forceState !== undefined ? forceState : !targetPanel.classList.contains('open');
+      popoverPairs.forEach(({ panel, btn }) => { const open = (panel === targetPanel) ? next : false; panel.classList.toggle('open', open); btn.classList.toggle('active', open); });
+    }
+    btnTheme.addEventListener('click', () => togglePopover(themePanel)); document.getElementById('btn-close-theme').addEventListener('click', () => togglePopover(themePanel, false));
+    btnShortcuts.addEventListener('click', () => togglePopover(shortcutPanel)); document.getElementById('btn-close-shortcuts').addEventListener('click', () => togglePopover(shortcutPanel, false));
+    btnAbout.addEventListener('click', () => togglePopover(aboutPanel)); document.getElementById('btn-close-about').addEventListener('click', () => togglePopover(aboutPanel, false));
+
+    const btnRestoreUi = document.getElementById('btn-restore-ui');
+    function setManualPureMode(enabled) {
+      appState.isManualPureMode = enabled;
+      topBar.classList.toggle('hidden-ui', enabled); dockWrapper.classList.toggle('hidden-ui', enabled); compassPill.classList.toggle('hidden-ui', enabled);
+      shortcutPanel.classList.toggle('hidden-ui', enabled); themePanel.classList.toggle('hidden-ui', enabled); aboutPanel.classList.toggle('hidden-ui', enabled);
+      btnRestoreUi.classList.toggle('visible', enabled && !appState.vrMode);
+    }
+    document.getElementById('btn-hide-ui').addEventListener('click', () => setManualPureMode(true));
+    btnRestoreUi.addEventListener('click', () => setManualPureMode(false));
+
+    const vrOverlay = document.getElementById('vr-overlay'), btnVr = document.getElementById('btn-vr');
+    async function setVRMode(enabled) {
+      appState.vrMode = enabled; viewer.setVRMode(enabled); btnVr.classList.toggle('active', enabled); vrOverlay.classList.toggle('active', enabled);
+      if (enabled) {
+        appState.vrPrevGyroState = viewer.gyroEnabled;
+        topBar.classList.add('hidden-ui'); dockWrapper.classList.add('hidden-ui'); compassPill.classList.add('hidden-ui');
+        shortcutPanel.classList.add('hidden-ui'); themePanel.classList.add('hidden-ui'); aboutPanel.classList.add('hidden-ui'); btnRestoreUi.classList.remove('visible');
+        const gyroOn = await viewer.setGyroEnabled(true); btnGyro.classList.toggle('gyro-active', gyroOn);
+      } else {
+        const restored = await viewer.setGyroEnabled(appState.vrPrevGyroState); btnGyro.classList.toggle('gyro-active', restored); setManualPureMode(appState.isManualPureMode);
+      }
+      wakeUpUIAndResetIdleTimer();
+    }
+    btnVr.addEventListener('click', () => setVRMode(!appState.vrMode));
+    document.getElementById('btn-exit-vr').addEventListener('click', () => setVRMode(false));
+    function toggleFullscreen() { if (!document.fullscreenElement) document.documentElement.requestFullscreen().catch(() => {}); else document.exitFullscreen(); }
+    document.getElementById('btn-fullscreen').addEventListener('click', toggleFullscreen);
+    canvas.addEventListener('dblclick', toggleFullscreen);
+
+    window.addEventListener('keydown', (e) => {
+      if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT') return;
+      if (e.key === 'Escape') {
+        if (editModal.classList.contains('open')) { editModal.classList.remove('open'); return; }
+        if (exportModal.classList.contains('open')) { closeExportModal(); return; }
+        if (appState.vrMode) { setVRMode(false); return; }
+        if (appState.isManualPureMode) { setManualPureMode(false); return; }
+      }
+      if (isAnyModalOpen()) return;
+      if (['KeyW', 'KeyA', 'KeyS', 'KeyD', 'ArrowUp', 'ArrowDown'].includes(e.code)) { e.preventDefault(); viewer.activeKeys.add(e.code); return; }
+      if (e.key === 'ArrowRight' || e.key === 'PageDown') { e.preventDefault(); activateScene((appState.activeIndex + 1) % appState.scenes.length); if (!appState.vrMode) expandDock(); }
+      else if (e.key === 'ArrowLeft' || e.key === 'PageUp') { e.preventDefault(); activateScene((appState.activeIndex - 1 + appState.scenes.length) % appState.scenes.length); if (!appState.vrMode) expandDock(); }
+      else if (e.code === 'KeyV') { e.preventDefault(); setVRMode(!appState.vrMode); }
+      else if (e.code === 'Space') { e.preventDefault(); toggleAutoRotate(); }
+      else if (e.code === 'KeyR') { const s = appState.scenes[appState.activeIndex]; viewer.resetView(s ? s.yaw : 0, s ? s.pitch : 0, s ? s.fov : 75, s ? (s.northOffset || 0) : 0); }
+      else if (e.code === 'KeyF') { e.preventDefault(); toggleFullscreen(); }
+      else if (e.code === 'KeyH') { e.preventDefault(); if (!appState.vrMode) setManualPureMode(!appState.isManualPureMode); }
+      else if (e.code === 'KeyK' || e.key === '?') { e.preventDefault(); if (!appState.vrMode) togglePopover(shortcutPanel); }
+    });
+    window.addEventListener('keyup', (e) => viewer.activeKeys.delete(e.code));
+    window.addEventListener('blur', () => viewer.activeKeys.clear());
+
+    const exportModal = document.getElementById('export-modal'), exportTitleInput = document.getElementById('export-title');
+    const qualityPresetSelect = document.getElementById('export-quality-preset'), jpegQualitySlider = document.getElementById('export-jpeg-quality');
+    const jpegQualityLabel = document.getElementById('export-jpeg-label'), sizeEstimateLabel = document.getElementById('export-size-estimate');
+    const exportLogoState = { type: 'none', imageDataUrl: '', imageName: '', text: '© cgpiece 360°', opacity: 0.75, scale: 1.0 };
+    const logoImageControls = document.getElementById('logo-image-controls'), logoTextControls = document.getElementById('logo-text-controls'), logoStyleControls = document.getElementById('logo-style-controls');
+    const logoFileInput = document.getElementById('export-logo-file'), logoFileName = document.getElementById('export-logo-filename'), logoTextInput = document.getElementById('export-logo-text');
+    const logoOpacitySlider = document.getElementById('export-logo-opacity'), logoOpacityVal = document.getElementById('export-logo-opacity-val');
+    const logoScaleSlider = document.getElementById('export-logo-scale'), logoScaleVal = document.getElementById('export-logo-scale-val'), logoPreviewEl = document.getElementById('export-logo-preview');
+
+    logoTextInput.value = exportLogoState.text; updateRangeFill(jpegQualitySlider); updateRangeFill(logoOpacitySlider); updateRangeFill(logoScaleSlider);
+
+    function renderLogoPreview() {
+      logoImageControls.style.display = exportLogoState.type === 'image' ? 'block' : 'none';
+      logoTextControls.style.display = exportLogoState.type === 'text' ? 'block' : 'none';
+      logoStyleControls.style.display = exportLogoState.type === 'none' ? 'none' : 'block';
+      logoPreviewEl.style.opacity = String(exportLogoState.opacity); logoPreviewEl.style.transform = `scale(${exportLogoState.scale})`; logoPreviewEl.innerHTML = '';
+      if (exportLogoState.type === 'image') {
+        if (exportLogoState.imageDataUrl) { const img = document.createElement('img'); img.src = exportLogoState.imageDataUrl; logoPreviewEl.appendChild(img); }
+        else { const sp = document.createElement('span'); sp.className = 'wm-text-preview'; sp.style.opacity = '0.5'; sp.textContent = t('logoNeedImg'); logoPreviewEl.appendChild(sp); }
+      } else if (exportLogoState.type === 'text') {
+        const sp = document.createElement('span'); sp.className = 'wm-text-preview'; sp.textContent = exportLogoState.text || '© cgpiece 360°'; logoPreviewEl.appendChild(sp);
+      }
+    }
+
+    document.querySelectorAll('.seg-btn[data-logo-mode]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        exportLogoState.type = btn.dataset.logoMode;
+        document.querySelectorAll('.seg-btn[data-logo-mode]').forEach(b => b.classList.toggle('active', b === btn));
+        renderLogoPreview(); updateExportSizeEstimate();
+      });
+    });
+    document.getElementById('btn-upload-logo').addEventListener('click', () => logoFileInput.click());
+    logoFileInput.addEventListener('change', (e) => {
+      const file = e.target.files && e.target.files[0]; if (!file) return;
+      const reader = new FileReader();
+      reader.onload = () => {
+        const raw = reader.result;
+        if (file.type === 'image/svg+xml') { exportLogoState.imageDataUrl = raw; exportLogoState.imageName = file.name; logoFileName.textContent = file.name; renderLogoPreview(); updateExportSizeEstimate(); return; }
+        const img = new Image();
+        img.onload = () => {
+          const maxSide = 512; let w = img.naturalWidth, h = img.naturalHeight;
+          if (w > maxSide || h > maxSide) {
+            const s = Math.min(maxSide / w, maxSide / h); w = Math.max(1, Math.round(w * s)); h = Math.max(1, Math.round(h * s));
+            const c = document.createElement('canvas'); c.width = w; c.height = h; c.getContext('2d').drawImage(img, 0, 0, w, h);
+            exportLogoState.imageDataUrl = c.toDataURL('image/png'); c.width = 0; c.height = 0;
+          } else { exportLogoState.imageDataUrl = raw; }
+          exportLogoState.imageName = file.name; logoFileName.textContent = file.name; renderLogoPreview(); updateExportSizeEstimate();
+        };
+        img.src = raw;
+      };
+      reader.readAsDataURL(file); logoFileInput.value = '';
+    });
+    logoTextInput.addEventListener('input', (e) => { exportLogoState.text = e.target.value; renderLogoPreview(); });
+    logoOpacitySlider.addEventListener('input', (e) => { const p = Number(e.target.value); exportLogoState.opacity = p / 100; logoOpacityVal.textContent = `${p}%`; updateRangeFill(logoOpacitySlider); renderLogoPreview(); });
+    logoScaleSlider.addEventListener('input', (e) => { const v = Number(e.target.value) / 100; exportLogoState.scale = v; logoScaleVal.textContent = `${v.toFixed(1)}×`; updateRangeFill(logoScaleSlider); renderLogoPreview(); });
+
+    function getExportTargetDimensions(scene, preset) {
+      let maxW = scene.width; if (preset === 'standard') maxW = Math.min(scene.width, 4096); if (preset === 'compact') maxW = Math.min(scene.width, 2048);
+      const scale = maxW / scene.width, targetW = Math.round(scene.width * scale), targetH = Math.round(scene.height * scale);
+      return { targetW, targetH, grid: viewer.computeTileGrid(targetW, targetH) };
+    }
+    function updateExportSizeEstimate() {
+      const preset = qualityPresetSelect.value, q = Number(jpegQualitySlider.value) / 100;
+      let total = 35000 + ((exportLogoState.type === 'image' && exportLogoState.imageDataUrl) ? exportLogoState.imageDataUrl.length : 0);
+      appState.scenes.forEach(s => { const { targetW, targetH } = getExportTargetDimensions(s, preset); total += targetW * targetH * (0.14 + Math.pow(q, 3) * 0.45) * 1.33; });
+      sizeEstimateLabel.textContent = t('sizeEstFmt')(formatBytes(total), appState.scenes.length);
+    }
+
+    document.getElementById('btn-open-export').addEventListener('click', () => {
+      exportTitleInput.value = appState.scenes.length > 1 ? (currentLang === 'zh' ? `${appState.scenes[0].name} 等 ${appState.scenes.length} 个全景场景` : `${appState.scenes[0].name} (${appState.scenes.length} Scenes)`) : appState.scenes[0].name;
+      document.getElementById('export-lang-select').value = currentLang;
+      document.getElementById('export-scene-summary').innerHTML = t('expSummaryFmt')(appState.scenes.length);
+      updateRangeFill(jpegQualitySlider); updateRangeFill(logoOpacitySlider); updateRangeFill(logoScaleSlider);
+      renderLogoPreview(); updateExportSizeEstimate(); exportModal.classList.add('open');
+    });
+
+    const closeExportModal = () => exportModal.classList.remove('open');
+    document.getElementById('btn-close-export').addEventListener('click', closeExportModal);
+    document.getElementById('btn-cancel-export').addEventListener('click', closeExportModal);
+    qualityPresetSelect.addEventListener('change', updateExportSizeEstimate);
+    jpegQualitySlider.addEventListener('input', () => { jpegQualityLabel.textContent = jpegQualitySlider.value + '%'; updateRangeFill(jpegQualitySlider); updateExportSizeEstimate(); });
+
+    function applyLanguage(lang, save = false) {
+      currentLang = (lang === 'en') ? 'en' : 'zh';
+      document.documentElement.lang = currentLang === 'zh' ? 'zh-CN' : 'en'; document.title = t('pageTitle');
+      const setTxt = (id, key) => { const el = document.getElementById(id); if (el) el.textContent = t(key); };
+      setTxt('drop-title', 'dropTitle'); setTxt('drop-sub', 'dropSub');
+      setTxt('lbl-rotate', 'btnRotate'); setTxt('lbl-gyro', 'btnGyro'); setTxt('lbl-reset', 'btnReset');
+      setTxt('lbl-theme', 'btnTheme'); setTxt('lbl-shortcuts', 'btnShortcuts'); setTxt('lbl-lang-code', 'langBadge');
+      setTxt('lbl-about', 'btnAbout'); setTxt('lbl-pure', 'btnPure'); setTxt('lbl-fs', 'btnFs');
+      setTxt('lbl-add-pano', 'btnAddPano'); setTxt('lbl-export-btn', 'btnExport');
+      setTxt('lbl-theme-title', 'themeTitle'); setTxt('lbl-theme-presets', 'themePresets'); setTxt('lbl-theme-accent', 'themeAccent');
+      setTxt('lbl-theme-panel', 'themePanel'); setTxt('lbl-theme-opacity', 'themeOpacity'); setTxt('lbl-theme-blur', 'themeBlur'); setTxt('btn-reset-theme', 'themeReset');
+      setTxt('lbl-sc-title', 'scTitle'); setTxt('lbl-sc-rot', 'scRot'); setTxt('lbl-sc-zoom', 'scZoom'); setTxt('lbl-sc-scene', 'scScene');
+      setTxt('lbl-sc-vr', 'scVr'); setTxt('lbl-sc-auto', 'scAuto'); setTxt('lbl-sc-reset', 'scReset'); setTxt('lbl-sc-fs', 'scFs'); setTxt('lbl-sc-dbl', 'scDbl'); setTxt('lbl-sc-pure', 'scPure');
+      setTxt('lbl-about-title', 'aboutTitle'); setTxt('lbl-about-app', 'aboutApp'); setTxt('lbl-about-sub', 'aboutSub');
+      setTxt('lbl-about-desc', 'aboutDesc'); setTxt('lbl-about-author', 'aboutAuthor'); setTxt('lbl-about-ver', 'aboutVer');
+      setTxt('lbl-about-site', 'aboutSite'); setTxt('lbl-about-yt', 'aboutYt'); setTxt('lbl-about-email', 'aboutEmail'); setTxt('lbl-about-donate', 'aboutDonate');
+      document.querySelectorAll('#about-panel [data-qr]').forEach(card => {
+        const span = card.querySelector('.qr-label'); if (!span) return;
+        const lblZh = card.getAttribute('data-qr-label-zh') || card.getAttribute('data-qr-label') || '';
+        const lblEn = card.getAttribute('data-qr-label-en') || lblZh;
+        span.textContent = currentLang === 'en' ? lblEn : lblZh;
+      });
+      setTxt('lbl-exit-vr', 'exitVr'); setTxt('lbl-dock-hint', 'dockHint');
+      pinLabel.textContent = appState.dockPinned ? t('dockPinned') : t('dockAutoHide');
+      setTxt('lbl-edit-title', 'editTitle'); setTxt('lbl-edit-sub', 'editSub'); setTxt('lbl-edit-name', 'editName');
+      setTxt('lbl-edit-desc', 'editDesc'); setTxt('btn-cancel-edit', 'cancel'); setTxt('btn-save-edit', 'save');
+      setTxt('lbl-exp-title', 'expTitle'); setTxt('lbl-exp-sub', 'expSub'); setTxt('lbl-exp-pagetitle', 'expPageTitle');
+      setTxt('lbl-exp-quality', 'expQuality'); setTxt('opt-smart', 'optSmart'); setTxt('opt-standard', 'optStandard'); setTxt('opt-compact', 'optCompact');
+      setTxt('lbl-exp-jpeg', 'expJpeg'); setTxt('lbl-exp-logo', 'expLogo'); setTxt('seg-logo-none', 'logoNone');
+      setTxt('seg-logo-image', 'logoImg'); setTxt('seg-logo-text', 'logoText'); setTxt('btn-upload-logo', 'logoUploadBtn');
+      if (!exportLogoState.imageName) setTxt('export-logo-filename', 'logoNoFile');
+      document.getElementById('export-logo-text').placeholder = t('logoTextPlaceholder');
+      setTxt('lbl-logo-opacity', 'logoOpacity'); setTxt('lbl-logo-scale', 'logoScale'); setTxt('lbl-logo-preview-hint', 'logoPreviewHint');
+      setTxt('lbl-exp-lang-section', 'expLangSection'); setTxt('lbl-exp-show-lang', 'expShowLang'); setTxt('lbl-exp-show-lang-sub', 'expShowLangSub');
+      setTxt('lbl-exp-autorot', 'expAutoRot'); setTxt('lbl-exp-autorot-sub', 'expAutoRotSub');
+      setTxt('lbl-exp-show-compass', 'expShowCompass'); setTxt('lbl-exp-show-compass-sub', 'expShowCompassSub');
+      setTxt('btn-cancel-export', 'cancel'); setTxt('btn-export-text', 'expBtnText');
+
+      refreshBuiltInPanoramasForLang(); updateSceneHeaderLabels(); renderSceneDock(); renderLogoPreview();
+      if (editModal.classList.contains('open') && appState.scenes[appState.editingIndex]) refreshEditDraftLabels(appState.scenes[appState.editingIndex]);
+      if (exportModal.classList.contains('open')) { document.getElementById('export-scene-summary').innerHTML = t('expSummaryFmt')(appState.scenes.length); updateExportSizeEstimate(); }
+      syncTopOverlaysPosition();
+      if (save) try { localStorage.setItem('pano360_lang_v1', currentLang); } catch (e) {}
+    }
+
+    document.getElementById('btn-lang').addEventListener('click', () => applyLanguage(currentLang === 'zh' ? 'en' : 'zh', true));
+    applyLanguage(currentLang, false);
+    initAboutQrCodes();
+
+    function sliceSceneToTileDataUrls(scene, preset, quality) {
+      const { targetW, targetH, grid } = getExportTargetDimensions(scene, preset), tc = document.createElement('canvas');
+      tc.width = grid.tileW; tc.height = grid.tileH; const ctx = tc.getContext('2d'); ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = 'high';
+      const sw = scene.width / grid.cols, sh = scene.height / grid.rows, tiles = [];
+      for (let r = 0; r < grid.rows; r++) for (let c = 0; c < grid.cols; c++) { ctx.clearRect(0, 0, grid.tileW, grid.tileH); ctx.drawImage(scene.sourceEl, c * sw, r * sh, sw, sh, 0, 0, grid.tileW, grid.tileH); tiles.push(tc.toDataURL('image/jpeg', quality)); }
+      tc.width = 0; tc.height = 0; return { cols: grid.cols, rows: grid.rows, width: targetW, height: targetH, tiles };
+    }
+    function escapeHtml(str) { return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); }
+
+    function generateStandaloneMultiSceneHTML(config) {
+      const safeTitle = escapeHtml(config.title || '360° Panorama'), serializedScenes = JSON.stringify(config.scenes);
+      const tCfg = config.theme || DEFAULT_THEME, ac = hexToRgb(tCfg.accentColor), pc = hexToRgb(tCfg.panelColor), deepHex = computeDeepAccentHex(tCfg.accentColor), hoverAlpha = Math.min(0.96, tCfg.opacity + 0.14).toFixed(2);
+      const expLang = config.lang === 'en' ? 'en' : 'zh', showLangBtn = !!config.showLangBtn, showCompass = !!config.showCompass, logo = config.logo || { type: 'none' };
+      let logoHtml = '';
+      if (logo.type === 'image' && logo.imageDataUrl) logoHtml = `<div id="wm-logo" style="opacity:${logo.opacity};transform:scale(${logo.scale});"><img src="${logo.imageDataUrl}" alt="logo" /></div>`;
+      else if (logo.type === 'text' && (logo.text || '').trim()) logoHtml = `<div id="wm-logo" class="wm-text" style="opacity:${logo.opacity};transform:scale(${logo.scale});">${escapeHtml(logo.text.trim())}</div>`;
+      const langBtnHtml = showLangBtn ? `<button id="btn-lang" title="Language"><svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M3.6 9h16.8M3.6 15h16.8"/><path d="M12 3a12 12 0 010 18M12 3a12 12 0 000 18"/></svg><span id="l-lang">${expLang === 'zh' ? '中' : 'EN'}</span></button>` : '';
+      const compassHtml = showCompass ? `<div id="compass" class="glass ui-hide"><span class="dot" style="background:#34d399;box-shadow:0 0 8px #34d399"></span><span id="ang-out">正北 0° · 仰角 0° · 视野 75°</span></div>` : '';
+
+      return `<!DOCTYPE html>
+<html lang="${expLang === 'zh' ? 'zh-CN' : 'en'}">
+<head>
+<meta charset="UTF-8" /><meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+<title>${safeTitle} - 360°</title>
+<style>
+  :root{--accent:${tCfg.accentColor};--accent-rgb:${ac.r},${ac.g},${ac.b};--accent-deep:${deepHex};--panel-rgb:${pc.r},${pc.g},${pc.b};--panel-alpha:${tCfg.opacity};--panel-blur:${tCfg.blur}px;--panel-hover:rgba(${pc.r},${pc.g},${pc.b},${hoverAlpha})}
+  *{box-sizing:border-box;margin:0;padding:0;user-select:none;-webkit-user-select:none}
+  html,body{width:100%;height:100%;overflow:hidden;background:#070b14;font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei",sans-serif;color:#f8fafc}
+  #gl{position:fixed;inset:0;width:100%;height:100%;display:block;cursor:grab;touch-action:none}#gl:active{cursor:grabbing}
+  .glass{background:rgba(var(--panel-rgb),var(--panel-alpha));backdrop-filter:blur(var(--panel-blur));-webkit-backdrop-filter:blur(var(--panel-blur));border:1px solid rgba(255,255,255,.14);box-shadow:0 12px 32px rgba(0,0,0,.5)}
+  .ui-hide{transition:opacity .35s ease,transform .35s ease}.ui-hide.idle,.ui-hide.hidden{opacity:0!important;pointer-events:none!important}
+  .top-bar{position:fixed;top:0;left:0;right:0;z-index:25;padding:14px 16px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;pointer-events:none}
+  .brand-card{padding:9px 15px;border-radius:14px;max-width:min(360px,90vw);pointer-events:auto}.title{font-size:15px;font-weight:700;color:#fff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .top-tools{pointer-events:auto;display:flex;gap:2px;padding:4px;border-radius:14px;flex-wrap:wrap;justify-content:flex-end;margin-left:auto}
+  button{background:transparent;border:1px solid transparent;color:#cbd5e1;padding:6px 9px;border-radius:10px;font-size:12px;font-weight:500;cursor:pointer;transition:all .18s;white-space:nowrap;display:inline-flex;align-items:center;gap:5px;font-family:inherit}
+  button:hover{background:rgba(255,255,255,.12);color:#fff}button.active{background:rgba(var(--accent-rgb),.22);border-color:rgba(var(--accent-rgb),.42);color:var(--accent)}
+  #compass{position:fixed;top:70px;right:16px;z-index:24;border-radius:999px;padding:6px 13px;font-size:12px;color:#cbd5e1;display:flex;align-items:center;gap:8px;pointer-events:none;font-variant-numeric:tabular-nums}
+  #sc-panel{position:fixed;top:106px;right:16px;z-index:32;width:254px;border-radius:16px;padding:11px 13px;display:none}#sc-panel.open{display:block}
+  .sc-hd{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;padding-bottom:6px;border-bottom:1px solid rgba(255,255,255,.1);font-size:12px;font-weight:700}
+  .sc-row{display:flex;justify-content:space-between;align-items:center;font-size:11px;color:#cbd5e1;margin-top:6px}
+  kbd{padding:1px 5px;font-size:10px;font-family:monospace;color:var(--accent);background:rgba(var(--accent-rgb),.14);border:1px solid rgba(var(--accent-rgb),.34);border-radius:5px;margin-left:2px}
+  #zoom-hud{position:fixed;bottom:24px;left:50%;transform:translateX(-50%) translateY(8px);z-index:35;border-radius:999px;padding:7px 14px;display:flex;align-items:center;gap:10px;background:rgba(var(--panel-rgb),calc(var(--panel-alpha) * .85));backdrop-filter:blur(var(--panel-blur));-webkit-backdrop-filter:blur(var(--panel-blur));border:1px solid rgba(255,255,255,.16);opacity:0;pointer-events:none;transition:opacity .25s,transform .25s}#zoom-hud.show{opacity:1;pointer-events:auto;transform:translateX(-50%) translateY(0)}
+  #zoom-lbl{font-size:11px;font-weight:600;min-width:68px;font-variant-numeric:tabular-nums}#zoom-trk{position:relative;width:150px;height:6px;border-radius:999px;background:rgba(255,255,255,.18);cursor:pointer;touch-action:none}
+  #zoom-fl{position:absolute;left:0;top:0;bottom:0;border-radius:999px;background:linear-gradient(90deg,rgba(var(--accent-rgb),.72),var(--accent-deep));pointer-events:none}#zoom-th{position:absolute;top:50%;width:12px;height:12px;border-radius:50%;background:#fff;border:2px solid var(--accent);transform:translate(-50%,-50%);pointer-events:none}
+  #wm-logo{position:fixed;right:18px;bottom:18px;z-index:22;pointer-events:none;transform-origin:bottom right}#wm-logo img{max-width:140px;max-height:64px;width:auto;height:auto;display:block}
+  #wm-logo.wm-text{font-size:16px;font-weight:700;letter-spacing:.5px;color:#fff;white-space:nowrap;text-shadow:0 2px 8px rgba(0,0,0,.85),0 0 2px rgba(0,0,0,.9)}
+  #btn-restore{position:fixed;bottom:20px;right:20px;z-index:45;width:44px;height:44px;border-radius:50%;border:1px solid rgba(255,255,255,.16);color:var(--accent);display:none;align-items:center;justify-content:center;padding:0}#btn-restore.show{display:flex}#btn-restore:hover{background:var(--panel-hover)}
+  #vr-ov{position:fixed;inset:0;z-index:40;display:none;pointer-events:none}#vr-ov.on{display:block}.vr-div{position:absolute;top:0;bottom:0;left:50%;width:2px;transform:translateX(-50%);background:rgba(var(--accent-rgb),.5);box-shadow:0 0 10px #000}
+  .vr-f{position:absolute;top:10px;bottom:10px;width:calc(50% - 18px);border-radius:22px;border:1.5px solid rgba(255,255,255,.14);box-shadow:inset 0 0 36px rgba(0,0,0,.5)}.vr-l{left:9px}.vr-r{right:9px}
+  #btn-ex-vr{position:absolute;top:14px;left:50%;transform:translateX(-50%);pointer-events:auto;padding:7px 14px;border-radius:999px;border:1px solid rgba(var(--accent-rgb),.45);font-size:12px;color:#fff}#btn-ex-vr:hover{background:var(--panel-hover)}
+  #dock{position:fixed;left:16px;bottom:16px;z-index:30;max-width:calc(100vw - 32px)}#dock-pill{display:none;align-items:center;gap:8px;padding:9px 15px;border-radius:999px;cursor:pointer;font-size:12px;font-weight:600;color:#e2e8f0}#dock-pill:hover{background:var(--panel-hover);border-color:rgba(var(--accent-rgb),.5)}
+  #dock.collapsed #dock-pill{display:inline-flex}#dock.collapsed #dock-panel{display:none}#dock-panel{padding:10px 12px;border-radius:18px;width:min(520px,calc(100vw - 32px))}
+  .dock-hd{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;font-size:12px;color:#94a3b8}#scene-list{display:flex;gap:10px;overflow-x:auto;padding-bottom:4px}
+  .sc-card{flex:0 0 118px;border-radius:12px;background:rgba(var(--panel-rgb),.75);border:2px solid rgba(255,255,255,.1);overflow:hidden;cursor:pointer;transition:all .18s}.sc-card.active{border-color:var(--accent);box-shadow:0 0 0 2px rgba(var(--accent-rgb),.25)}
+  .sc-thumb{width:100%;height:62px;object-fit:cover;display:block}.sc-name{padding:5px 7px;font-size:11px;font-weight:600;color:#f1f5f9;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.dot{width:7px;height:7px;border-radius:50%;background:var(--accent);box-shadow:0 0 8px var(--accent)}
+  @media(max-width:640px){#compass,.hide-m{display:none!important}#zoom-trk{width:110px}button{padding:5px 7px;font-size:11px;gap:4px}}
+</style>
+</head>
+<body>
+<canvas id="gl"></canvas>
+<div id="top-bar" class="top-bar ui-hide">
+  <div class="glass brand-card"><div id="sc-title" class="title">${safeTitle}</div></div>
+  <div class="glass top-tools">
+    <button id="btn-rot" class="${config.autoRotate ? 'active' : ''}"><svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg><span id="l-rot">旋转</span></button>
+    <button id="btn-gyro"><svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 18h.01M8 21h8a2 2 0 002-2V5a2 2 0 00-2-2H8a2 2 0 00-2 2v14a2 2 0 002 2z"/></svg><span id="l-gyro">陀螺仪</span></button>
+    <button id="btn-vr"><svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M3 8a2 2 0 012-2h14a2 2 0 012 2v7a2 2 0 01-2 2h-4.382a1 1 0 01-.894-.553l-.948-1.894a1 1 0 00-1.552 0l-.948 1.894A1 1 0 019.382 17H5a2 2 0 01-2-2V8z"/><circle cx="8" cy="11.5" r="1.5"/><circle cx="16" cy="11.5" r="1.5"/></svg><span>VR</span></button>
+    <button id="btn-rst"><svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"/></svg><span id="l-rst">重置</span></button>
+    <button id="btn-keys" class="hide-m"><svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="2" y="6" width="20" height="12" rx="2"/><path stroke-linecap="round" d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M7 14h10"/></svg><span id="l-keys">快捷键</span></button>
+    ${langBtnHtml}
+    <button id="btn-pure"><svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21"/></svg><span id="l-pure">沉浸</span></button>
+    <button id="btn-fs"><svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4"/></svg><span id="l-fs">全屏</span></button>
+  </div>
+</div>
+${compassHtml}
+<div id="sc-panel" class="glass ui-hide">
+  <div class="sc-hd"><span id="sc-hd-txt">快捷键</span><button id="btn-ck" style="padding:1px 6px">×</button></div>
+  <div class="sc-row"><span id="sc-r1">旋转视口</span><span><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd></span></div>
+  <div class="sc-row"><span id="sc-r2">缩放视角</span><span><kbd>↑</kbd><kbd>↓</kbd></span></div>
+  <div class="sc-row"><span id="sc-r3">切换场景</span><span><kbd>←</kbd><kbd>→</kbd><kbd>PgUp</kbd><kbd>PgDn</kbd></span></div>
+  <div class="sc-row"><span id="sc-r4">VR 分屏（含陀螺仪）</span><span><kbd>V</kbd></span></div>
+  <div class="sc-row"><span id="sc-r5">沉浸模式</span><span><kbd>H</kbd></span></div>
+  <div class="sc-row"><span id="sc-r6">暂停旋转 / 重置</span><span><kbd>Space</kbd><kbd>R</kbd></span></div>
+  <div class="sc-row"><span id="sc-r7">全屏</span><span><kbd>F</kbd> / <span id="sc-dbl">双击</span></span></div>
+</div>
+<div id="zoom-hud"><span id="zoom-lbl">75° · 1.0×</span><div id="zoom-trk"><div id="zoom-fl"></div><div id="zoom-th"></div></div></div>
+${logoHtml}
+<button id="btn-restore" class="glass" title="退出沉浸模式 (H)"><svg width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/><path stroke-linecap="round" stroke-linejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/></svg></button>
+<div id="vr-ov"><div class="vr-div"></div><div class="vr-f vr-l"></div><div class="vr-f vr-r"></div><button id="btn-ex-vr" class="glass ui-hide">退出 VR 分屏 (V / ESC)</button></div>
+<div id="dock" class="ui-hide"><div id="dock-pill" class="glass"><span class="dot"></span><span id="pill-txt">切换场景</span></div><div id="dock-panel" class="glass"><div class="dock-hd"><span id="dock-cnt">全景场景</span><button id="btn-hide-dock" style="padding:2px 7px;font-size:11px;">收起</button></div><div id="scene-list"></div></div></div>
+<script>
+(function(){
+  const SCENES=${serializedScenes},AUTO_ROTATE_DEFAULT=${config.autoRotate};let lang='${expLang}';
+  const DIRS={zh:['正北','东北','正东','东南','正南','西南','正西','西北'],en:['N','NE','E','SE','S','SW','W','NW']};
+  const DICT={
+    zh:{rot:'旋转',gyro:'陀螺仪',rst:'重置',keys:'快捷键',pure:'沉浸',fs:'全屏',lang:'中',scHd:'快捷键',r1:'旋转视口',r2:'缩放视角',r3:'切换场景',r4:'VR 分屏（含陀螺仪）',r5:'沉浸模式',r6:'暂停旋转 / 重置',r7:'全屏',dbl:'双击',exVr:'退出 VR 分屏 (V / ESC)',hide:'收起',restore:'退出沉浸模式 (H)',cnt:n=>'全景场景 ('+n+')',pill:(i,n,nm)=>'场景 ('+i+'/'+n+') · '+nm,cmp:(y,p,f)=>DIRS.zh[Math.floor((y+22.5)/45)%8]+' '+y+'° · 仰角 '+p+'° · 视野 '+f+'°'},
+    en:{rot:'Rotate',gyro:'Gyro',rst:'Reset',keys:'Keys',pure:'Hide UI',fs:'Full',lang:'EN',scHd:'Shortcuts',r1:'Look Around',r2:'Zoom In / Out',r3:'Switch Scene',r4:'VR Split + Gyro',r5:'Immersive Mode',r6:'Pause / Reset',r7:'Fullscreen',dbl:'Dbl-Click',exVr:'Exit VR (V / ESC)',hide:'Hide',restore:'Exit Immersive (H)',cnt:n=>'Scenes ('+n+')',pill:(i,n,nm)=>'Scene ('+i+'/'+n+') · '+nm,cmp:(y,p,f)=>DIRS.en[Math.floor((y+22.5)/45)%8]+' '+y+'° · Pitch '+p+'° · FOV '+f+'°'}
+  };
+  const canvas=document.getElementById('gl'),gl=canvas.getContext('webgl',{antialias:true})||canvas.getContext('experimental-webgl');
+  const vs='attribute vec2 a;varying vec2 v;void main(){v=a;gl_Position=vec4(a,0.,1.);}';
+  const fs='precision highp float;varying vec2 v;uniform sampler2D u_t[8];uniform int u_c,u_r;uniform float y,p,f,r;const float PI=3.14159265359;vec4 st(int i,vec2 uv){if(i==0)return texture2D(u_t[0],uv);if(i==1)return texture2D(u_t[1],uv);if(i==2)return texture2D(u_t[2],uv);if(i==3)return texture2D(u_t[3],uv);if(i==4)return texture2D(u_t[4],uv);if(i==5)return texture2D(u_t[5],uv);if(i==6)return texture2D(u_t[6],uv);return texture2D(u_t[7],uv);}void main(){float s=tan(radians(f*.5));vec3 d=normalize(vec3(v.x*r*s,v.y*s,-1.));float cp=cos(p),sp=sin(p);vec3 dp=vec3(d.x,d.y*cp-d.z*sp,d.y*sp+d.z*cp);float cy=cos(y),sy=sin(y);vec3 w=vec3(dp.x*cy-dp.z*sy,dp.y,dp.x*sy+dp.z*cy);float u=fract(atan(w.x,-w.z)/(2.*PI)+.5);float vv=clamp(.5-asin(clamp(w.y,-1.,1.))/PI,0.,1.);float fc=float(u_c),fr=float(u_r);float su=u*fc,sv=vv*fr;int col=int(min(floor(su),fc-1.));int row=int(min(floor(sv),fr-1.));gl_FragColor=st(row*u_c+col,vec2(su-float(col),sv-float(row)));}';
+  function sh(t,s){const o=gl.createShader(t);gl.shaderSource(o,s);gl.compileShader(o);return o;}
+  const pr=gl.createProgram();gl.attachShader(pr,sh(gl.VERTEX_SHADER,vs));gl.attachShader(pr,sh(gl.FRAGMENT_SHADER,fs));gl.linkProgram(pr);gl.useProgram(pr);
+  const b=gl.createBuffer();gl.bindBuffer(gl.ARRAY_BUFFER,b);gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([-1,-1,1,-1,-1,1,-1,1,1,-1,1,1]),gl.STATIC_DRAW);
+  const al=gl.getAttribLocation(pr,'a');gl.enableVertexAttribArray(al);gl.vertexAttribPointer(al,2,gl.FLOAT,false,0,0);
+  const uc=gl.getUniformLocation(pr,'u_c'),urw=gl.getUniformLocation(pr,'u_r'),uy=gl.getUniformLocation(pr,'y'),up=gl.getUniformLocation(pr,'p'),uf=gl.getUniformLocation(pr,'f'),ur=gl.getUniformLocation(pr,'r');
+  const texs=[],idxs=[];
+  for(let i=0;i<8;i++){const t=gl.createTexture();gl.activeTexture(gl.TEXTURE0+i);gl.bindTexture(gl.TEXTURE_2D,t);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_S,gl.CLAMP_TO_EDGE);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.CLAMP_TO_EDGE);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.LINEAR);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.LINEAR);gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,1,1,0,gl.RGBA,gl.UNSIGNED_BYTE,new Uint8Array([10,15,28,255]));texs.push(t);idxs.push(i);}
+  gl.uniform1iv(gl.getUniformLocation(pr,'u_t'),new Int32Array(idxs));
+  let curIdx=0,cols=1,rows=1,yaw=0,northOff=0,pitch=0,fov=75,autoRot=AUTO_ROTATE_DEFAULT,vrMode=false,pureMode=false,prevGyro=false,drag=false,lx=0,ly=0,vx=0,vy=0,pd=0,gyro=false,gSet=false,gOff=0,zDrag=false;
+  const keys=new Set(),topBar=document.getElementById('top-bar'),scPanel=document.getElementById('sc-panel'),compassEl=document.getElementById('compass'),angOut=document.getElementById('ang-out');
+  function syncTopPos(){const r=topBar.getBoundingClientRect(),ct=Math.max(62,Math.round(r.bottom+2));if(compassEl)compassEl.style.top=ct+'px';scPanel.style.top=(ct+(compassEl&&window.innerWidth>640?36:4))+'px';}
+  if(typeof ResizeObserver!=='undefined')new ResizeObserver(syncTopPos).observe(topBar);window.addEventListener('resize',syncTopPos);
+  function applyExpLang(){
+    const d=DICT[lang];document.documentElement.lang=lang==='zh'?'zh-CN':'en';
+    document.getElementById('l-rot').textContent=d.rot;document.getElementById('l-gyro').textContent=d.gyro;document.getElementById('l-rst').textContent=d.rst;
+    document.getElementById('l-keys').textContent=d.keys;document.getElementById('l-pure').textContent=d.pure;document.getElementById('l-fs').textContent=d.fs;
+    const bl=document.getElementById('l-lang');if(bl)bl.textContent=d.lang;
+    document.getElementById('sc-hd-txt').textContent=d.scHd;document.getElementById('sc-r1').textContent=d.r1;document.getElementById('sc-r2').textContent=d.r2;document.getElementById('sc-r3').textContent=d.r3;
+    document.getElementById('sc-r4').textContent=d.r4;document.getElementById('sc-r5').textContent=d.r5;document.getElementById('sc-r6').textContent=d.r6;document.getElementById('sc-r7').textContent=d.r7;document.getElementById('sc-dbl').textContent=d.dbl;
+    document.getElementById('btn-ex-vr').textContent=d.exVr;document.getElementById('btn-hide-dock').textContent=d.hide;document.getElementById('btn-restore').title=d.restore;
+    if(SCENES[curIdx]){document.getElementById('pill-txt').textContent=d.pill(curIdx+1,SCENES.length,SCENES[curIdx].name);document.getElementById('dock-cnt').textContent=d.cnt(SCENES.length);}
+    syncTopPos();
+  }
+  const btnLangEl=document.getElementById('btn-lang');if(btnLangEl)btnLangEl.onclick=()=>{lang=lang==='zh'?'en':'zh';applyExpLang();};
+  const btnGyro=document.getElementById('btn-gyro');
+  async function setGyro(on){if(on){if(typeof DeviceOrientationEvent!=='undefined'&&typeof DeviceOrientationEvent.requestPermission==='function'){try{if(await DeviceOrientationEvent.requestPermission()!=='granted'){btnGyro.classList.remove('active');return false;}}catch(e){btnGyro.classList.remove('active');return false;}}gyro=true;gSet=false;btnGyro.classList.add('active');return true;}gyro=false;gSet=false;btnGyro.classList.remove('active');return false;}
+  const zHud=document.getElementById('zoom-hud'),zLbl=document.getElementById('zoom-lbl'),zTrk=document.getElementById('zoom-trk'),zFl=document.getElementById('zoom-fl'),zTh=document.getElementById('zoom-th');let zTimer=null;
+  function setFov(val,showBar){fov=Math.max(30,Math.min(110,val));if(showBar){const pct=((110-fov)/80)*100;zLbl.textContent=Math.round(fov)+'° · '+(75/fov).toFixed(1)+'×';zFl.style.width=pct+'%';zTh.style.left=pct+'%';zHud.classList.add('show');clearTimeout(zTimer);zTimer=setTimeout(()=>zHud.classList.remove('show'),1400);}}
+  function applyZBar(cx){const r=zTrk.getBoundingClientRect();setFov(110-Math.max(0,Math.min(1,(cx-r.left)/Math.max(1,r.width)))*80,true);}
+  zTrk.onmousedown=e=>{e.stopPropagation();zDrag=true;applyZBar(e.clientX);};window.addEventListener('mousemove',e=>{if(zDrag)applyZBar(e.clientX);});window.addEventListener('mouseup',()=>{zDrag=false;});
+  zTrk.addEventListener('touchstart',e=>{e.stopPropagation();zDrag=true;if(e.touches[0])applyZBar(e.touches[0].clientX);},{passive:true});zTrk.addEventListener('touchmove',e=>{e.stopPropagation();if(zDrag&&e.touches[0])applyZBar(e.touches[0].clientX);},{passive:true});zTrk.addEventListener('touchend',()=>{zDrag=false;});
+  function loadScene(idx){
+    curIdx=idx;const sc=SCENES[idx];cols=sc.cols;rows=sc.rows;yaw=sc.yaw;northOff=sc.northOffset||0;pitch=sc.pitch;fov=sc.fov;vx=vy=0;gSet=false;
+    document.getElementById('sc-title').textContent=sc.name;document.getElementById('pill-txt').textContent=DICT[lang].pill(idx+1,SCENES.length,sc.name);document.getElementById('dock-cnt').textContent=DICT[lang].cnt(SCENES.length);
+    sc.tiles.forEach((src,i)=>{const im=new Image();im.onload=()=>{if(curIdx!==idx)return;gl.activeTexture(gl.TEXTURE0+i);gl.bindTexture(gl.TEXTURE_2D,texs[i]);gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,gl.RGBA,gl.UNSIGNED_BYTE,im);};im.src=src;});
+    renderDock();
+  }
+  const dock=document.getElementById('dock');let hideTimer=null;
+  function resetHide(){clearTimeout(hideTimer);if(SCENES.length>1)hideTimer=setTimeout(()=>dock.classList.add('collapsed'),1500);}
+  function expandDock(){dock.classList.remove('collapsed');resetHide();}
+  document.getElementById('dock-pill').onclick=expandDock;document.getElementById('btn-hide-dock').onclick=()=>dock.classList.add('collapsed');
+  dock.onmouseenter=()=>{clearTimeout(hideTimer);expandDock();};dock.onmouseleave=resetHide;
+  function renderDock(){if(SCENES.length<=1){dock.style.display='none';return;}const list=document.getElementById('scene-list');list.innerHTML='';SCENES.forEach((s,i)=>{const c=document.createElement('div');c.className='sc-card'+(i===curIdx?' active':'');c.innerHTML='<img class="sc-thumb" src="'+s.thumb+'" /><div class="sc-name">#'+(i+1)+' '+s.name+'</div>';c.onclick=()=>loadScene(i);list.appendChild(c);});}
+  const uiEls=document.querySelectorAll('.ui-hide');let idleTimer=null;
+  function wakeUI(){uiEls.forEach(el=>el.classList.remove('idle'));clearTimeout(idleTimer);idleTimer=setTimeout(()=>{if(drag||zDrag||keys.size>0){wakeUI();return;}uiEls.forEach(el=>el.classList.add('idle'));},3000);}
+  ['mousemove','mousedown','wheel','touchstart','touchmove','keydown'].forEach(ev=>window.addEventListener(ev,wakeUI,{passive:true}));wakeUI();
+  const vrOv=document.getElementById('vr-ov'),btnVr=document.getElementById('btn-vr'),btnRestore=document.getElementById('btn-restore');
+  function setPure(on){pureMode=on;const hide=on||vrMode;topBar.classList.toggle('hidden',hide);dock.classList.toggle('hidden',hide);scPanel.classList.toggle('hidden',hide);if(compassEl)compassEl.classList.toggle('hidden',hide);btnRestore.classList.toggle('show',on&&!vrMode);}
+  document.getElementById('btn-pure').onclick=()=>setPure(true);btnRestore.onclick=()=>setPure(false);
+  async function setVR(on){vrMode=on;btnVr.classList.toggle('active',on);vrOv.classList.toggle('on',on);setPure(pureMode);if(on){prevGyro=gyro;await setGyro(true);}else{await setGyro(prevGyro);}wakeUI();}
+  btnVr.onclick=()=>setVR(!vrMode);document.getElementById('btn-ex-vr').onclick=()=>setVR(false);
+  const btnKeys=document.getElementById('btn-keys');btnKeys.onclick=()=>{const o=scPanel.classList.toggle('open');btnKeys.classList.toggle('active',o);};document.getElementById('btn-ck').onclick=()=>{scPanel.classList.remove('open');btnKeys.classList.remove('active');};
+  function resize(){const dpr=Math.min(window.devicePixelRatio||1,2);canvas.width=canvas.clientWidth*dpr;canvas.height=canvas.clientHeight*dpr;gl.viewport(0,0,canvas.width,canvas.height);}
+  window.addEventListener('resize',resize);resize();
+  canvas.addEventListener('mousedown',e=>{drag=true;lx=e.clientX;ly=e.clientY;vx=vy=0;});
+  window.addEventListener('mousemove',e=>{if(!drag)return;const dx=e.clientX-lx,dy=e.clientY-ly;lx=e.clientX;ly=e.clientY;vx=-dx*(fov/600);vy=dy*(fov/600);yaw+=vx;if(gyro)gOff+=vx;pitch=Math.max(-89,Math.min(89,pitch+vy));});
+  window.addEventListener('mouseup',()=>drag=false);
+  canvas.addEventListener('wheel',e=>{e.preventDefault();setFov(fov+e.deltaY*0.04,true);},{passive:false});
+  canvas.addEventListener('dblclick',()=>{if(!document.fullscreenElement)document.documentElement.requestFullscreen().catch(()=>{});else document.exitFullscreen();});
+  canvas.addEventListener('touchstart',e=>{if(e.touches.length===1){drag=true;lx=e.touches[0].clientX;ly=e.touches[0].clientY;vx=vy=0;}else if(e.touches.length===2){drag=false;pd=Math.hypot(e.touches[0].clientX-e.touches[1].clientX,e.touches[0].clientY-e.touches[1].clientY);}},{passive:true});
+  canvas.addEventListener('touchmove',e=>{if(e.touches.length===1&&drag){const dx=e.touches[0].clientX-lx,dy=e.touches[0].clientY-ly;lx=e.touches[0].clientX;ly=e.touches[0].clientY;vx=-dx*(fov/450);vy=dy*(fov/450);yaw+=vx;if(gyro)gOff+=vx;pitch=Math.max(-89,Math.min(89,pitch+vy));}else if(e.touches.length===2){const d=Math.hypot(e.touches[0].clientX-e.touches[1].clientX,e.touches[0].clientY-e.touches[1].clientY);setFov(fov+(pd-d)*0.15,true);pd=d;}},{passive:true});
+  canvas.addEventListener('touchend',()=>drag=false);
+  window.addEventListener('deviceorientation',e=>{if(!gyro||e.alpha===null||e.beta===null||e.gamma===null)return;const d2r=Math.PI/180,a=e.alpha*d2r,b=e.beta*d2r,g=e.gamma*d2r,ca=Math.cos(a),sa=Math.sin(a),cb=Math.cos(b),sb=Math.sin(b),cg=Math.cos(g),sg=Math.sin(g),ex=-ca*sg-sa*cg*sb,ey=-sa*sg+ca*cg*sb,ez=-cg*cb,pDeg=Math.asin(Math.max(-1,Math.min(1,ez)))/d2r,hz=Math.hypot(ex,ey),yDeg=Math.atan2(ex,ey)/d2r;if(!gSet){gOff=yaw-yDeg;gSet=true;}if(hz>0.08)yaw=yDeg+gOff;pitch=Math.max(-85,Math.min(85,pDeg));});
+  window.addEventListener('keydown',e=>{
+    if(['KeyW','KeyA','KeyS','KeyD','ArrowUp','ArrowDown'].includes(e.code)){e.preventDefault();keys.add(e.code);return;}
+    if(e.key==='ArrowRight'||e.key==='PageDown'){e.preventDefault();loadScene((curIdx+1)%SCENES.length);if(!vrMode&&!pureMode)expandDock();}
+    else if(e.key==='ArrowLeft'||e.key==='PageUp'){e.preventDefault();loadScene((curIdx-1+SCENES.length)%SCENES.length);if(!vrMode&&!pureMode)expandDock();}
+    else if(e.code==='KeyV'){e.preventDefault();setVR(!vrMode);}else if(e.key==='Escape'){if(vrMode)setVR(false);else if(pureMode)setPure(false);}
+    else if(e.code==='KeyH'){e.preventDefault();if(!vrMode)setPure(!pureMode);}else if(e.code==='Space'){e.preventDefault();autoRot=!autoRot;btnRot.classList.toggle('active',autoRot);}
+    else if(e.code==='KeyR'){const sc=SCENES[curIdx];yaw=sc.yaw;northOff=sc.northOffset||0;pitch=sc.pitch;fov=sc.fov;vx=vy=0;gSet=false;}
+    else if(e.code==='KeyF'){if(!document.fullscreenElement)document.documentElement.requestFullscreen().catch(()=>{});else document.exitFullscreen();}
+    else if(e.code==='KeyK'||e.key==='?'){if(!vrMode&&!pureMode){const o=scPanel.classList.toggle('open');btnKeys.classList.toggle('active',o);}}
+  });
+  window.addEventListener('keyup',e=>keys.delete(e.code));window.addEventListener('blur',()=>keys.clear());
+  const btnRot=document.getElementById('btn-rot');btnRot.onclick=()=>{autoRot=!autoRot;btnRot.classList.toggle('active',autoRot);};btnGyro.onclick=()=>setGyro(!gyro);
+  document.getElementById('btn-rst').onclick=()=>{const sc=SCENES[curIdx];yaw=sc.yaw;northOff=sc.northOffset||0;pitch=sc.pitch;fov=sc.fov;vx=vy=0;gSet=false;};
+  document.getElementById('btn-fs').onclick=()=>{if(!document.fullscreenElement)document.documentElement.requestFullscreen().catch(()=>{});else document.exitFullscreen();};
+  applyExpLang();loadScene(0);resetHide();
+  let lt=performance.now();
+  function loop(now){
+    const dt=Math.min((now-lt)/16.6667,3);lt=now;let kc=false;const rs=1.25*(fov/75)*dt;
+    if(keys.has('KeyA')){yaw-=rs;if(gyro)gOff-=rs;kc=true;}
+    if(keys.has('KeyD')){yaw+=rs;if(gyro)gOff+=rs;kc=true;}
+    if(keys.has('KeyW')){pitch=Math.min(89,pitch+rs);kc=true;}
+    if(keys.has('KeyS')){pitch=Math.max(-89,pitch-rs);kc=true;}
+    if(keys.has('ArrowUp')){setFov(fov-0.9*dt,true);kc=true;}
+    if(keys.has('ArrowDown')){setFov(fov+0.9*dt,true);kc=true;}
+    if(kc){vx=vy=0;}
+    else if(!drag){
+      if(Math.abs(vx)>0.001||Math.abs(vy)>0.001){yaw+=vx;if(gyro)gOff+=vx;pitch=Math.max(-89,Math.min(89,pitch+vy));vx*=0.92;vy*=0.92;}
+      else if(autoRot&&!gyro){yaw+=0.08*dt;}
+    }
+    if(angOut){const ny=Math.round(((yaw%360)+360)%360);angOut.textContent=DICT[lang].cmp(ny,Math.round(pitch),Math.round(fov));}
+    const w=canvas.width,h=Math.max(1,canvas.height);
+    gl.uniform1i(uc,cols);gl.uniform1i(urw,rows);
+    gl.uniform1f(uy,(yaw+northOff)*Math.PI/180);gl.uniform1f(up,pitch*Math.PI/180);gl.uniform1f(uf,fov);
+    if(vrMode){
+      const hw=Math.floor(w*0.5),rw=w-hw;
+      gl.enable(gl.SCISSOR_TEST);
+      gl.viewport(0,0,hw,h);gl.scissor(0,0,hw,h);gl.uniform1f(ur,hw/h);gl.drawArrays(gl.TRIANGLES,0,6);
+      gl.viewport(hw,0,rw,h);gl.scissor(hw,0,rw,h);gl.uniform1f(ur,rw/h);gl.drawArrays(gl.TRIANGLES,0,6);
+      gl.disable(gl.SCISSOR_TEST);
+    }else{
+      gl.viewport(0,0,w,h);gl.uniform1f(ur,w/h);gl.drawArrays(gl.TRIANGLES,0,6);
+    }
+    requestAnimationFrame(loop);
+  }
+  requestAnimationFrame(loop);
+})();
+<\/script>
+</body>
+</html>`;
+    }
+
+    document.getElementById('btn-confirm-export').addEventListener('click', () => {
+      if (exportLogoState.type === 'image' && !exportLogoState.imageDataUrl) {
+        showToast(t('toastNeedLogoImg'));
+        return;
+      }
+
+      const btnText = document.getElementById('btn-export-text');
+      btnText.textContent = t('expWorking');
+
+      setTimeout(() => {
+        try {
+          const preset = qualityPresetSelect.value;
+          const quality = Number(jpegQualitySlider.value) / 100;
+          const autoRotate = document.getElementById('export-autorotate').checked;
+          const exportLang = document.getElementById('export-lang-select').value;
+          const showLangBtn = document.getElementById('export-show-lang').checked;
+          const showCompass = document.getElementById('export-show-compass').checked;
+          const title = exportTitleInput.value.trim() || (exportLang === 'zh' ? '360° 全景漫游' : '360° Panorama');
+
+          const exportedScenes = appState.scenes.map(scene => {
+            const sliced = sliceSceneToTileDataUrls(scene, preset, quality);
+            return {
+              name: scene.name,
+              thumb: scene.thumbUrl,
+              cols: sliced.cols,
+              rows: sliced.rows,
+              yaw: scene.yaw || 0,
+              northOffset: scene.northOffset || 0,
+              pitch: scene.pitch || 0,
+              fov: scene.fov || 75,
+              tiles: sliced.tiles
+            };
+          });
+
+          const htmlContent = generateStandaloneMultiSceneHTML({
+            title,
+            autoRotate,
+            lang: exportLang,
+            showLangBtn,
+            showCompass,
+            theme: { ...currentTheme },
+            logo: { ...exportLogoState },
+            scenes: exportedScenes
+          });
+
+          const blob = new Blob([htmlContent], { type: 'text/html;charset=utf-8' });
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          const safeFileName = title.replace(/[\\/:*?"<>|]/g, '_') + '_360.html';
+          a.href = url;
+          a.download = safeFileName;
+          document.body.appendChild(a);
+          a.click();
+          document.body.removeChild(a);
+          setTimeout(() => URL.revokeObjectURL(url), 5000);
+
+          closeExportModal();
+          showToast(t('toastExportOk')(exportedScenes.length, formatBytes(blob.size)), 4200);
+        } catch (err) {
+          console.error(err);
+          showToast(t('toastExportFail'));
+        } finally {
+          btnText.textContent = t('expBtnText');
+        }
+      }, 60);
+    });
+  </script>
+</body>
+</html>
