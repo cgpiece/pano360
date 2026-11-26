@@ -71,8 +71,8 @@ If you find this tool helpful, feel free to support the development!
 
 - **PayPal**: [paypal.me/cgpiece](https://paypal.me/cgpiece)
 - **Ko-fi**: [ko-fi.com/cgpiece](https://ko-fi.com/cgpiece)
-- **Buy Me a Coffee**: [buymeacoffee.com/cgpiece](https://www.buymeacoffee.com/cgpiece)
-- **Gumroad**: [cgpiece.gumroad.com](https://cgpiece.gumroad.com)
+<!-- - **Buy Me a Coffee**: [buymeacoffee.com/cgpiece](https://www.buymeacoffee.com/cgpiece) -->
+<!-- - **Gumroad**: [cgpiece.gumroad.com](https://cgpiece.gumroad.com) -->
 
 | 微信赞赏 / WeChat Pay | 支付宝 / Alipay |
 | :---: | :---: |
